@@ -1,0 +1,1301 @@
+[
+  {
+    "id": "TC001",
+    "title": "Complete a practice drill and save the session",
+    "description": "Verifies that a user can finish a code typing drill and see the completed session reflected in the practice results and history.",
+    "category": "Code Typing Practice Workspace",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /practice"
+      },
+      {
+        "type": "action",
+        "description": "Read the displayed code snippet"
+      },
+      {
+        "type": "action",
+        "description": "Type the displayed code snippet into the editor"
+      },
+      {
+        "type": "action",
+        "description": "Continue typing until the drill is completed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a completion summary is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the session appears in local history"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Recover from typing mistakes during a drill",
+    "description": "Verifies that a user can make mistakes, see live error feedback, correct the input, and still complete the drill successfully.",
+    "category": "Code Typing Practice Workspace",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /practice"
+      },
+      {
+        "type": "action",
+        "description": "Read the displayed code snippet"
+      },
+      {
+        "type": "action",
+        "description": "Type part of the snippet with intentional mistakes"
+      },
+      {
+        "type": "action",
+        "description": "Continue typing with the mistakes visible"
+      },
+      {
+        "type": "action",
+        "description": "Correct the typed content and finish the snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify error feedback is shown during the drill"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the drill completes successfully"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Pause and resume a practice session",
+    "description": "Verifies that pressing Escape pauses an active drill and the session can be resumed and completed afterward.",
+    "category": "Code Typing Practice Workspace",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /practice"
+      },
+      {
+        "type": "action",
+        "description": "Start typing the displayed snippet"
+      },
+      {
+        "type": "action",
+        "description": "Press Escape"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the session is paused"
+      },
+      {
+        "type": "action",
+        "description": "Resume the drill"
+      },
+      {
+        "type": "action",
+        "description": "Finish typing the snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the drill completes successfully"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Join a multiplayer race and review the result summary",
+    "description": "Verifies that a user can enter multiplayer, join a simulated race, complete it, and review the final standings.",
+    "category": "Multiplayer Racing Arena",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /multiplayer"
+      },
+      {
+        "type": "action",
+        "description": "Join or create a race room"
+      },
+      {
+        "type": "action",
+        "description": "Select a race mode"
+      },
+      {
+        "type": "action",
+        "description": "Start the race"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify race progress is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Complete the race"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a match summary is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify standings are shown"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Join a quick multiplayer race and review the result",
+    "description": "This test verifies that a user can enter multiplayer, join a race, complete the match, and see final standings.",
+    "category": "Multiplayer Arena",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /multiplayer"
+      },
+      {
+        "type": "action",
+        "description": "Select a race mode"
+      },
+      {
+        "type": "action",
+        "description": "Join the matchmaking queue"
+      },
+      {
+        "type": "action",
+        "description": "Complete the race snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify final standings are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a match summary is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Generate a snippet and start practice from it",
+    "description": "Verifies that a user can configure the generator, create a snippet, preview it, and launch practice from the generated result.",
+    "category": "AI Practice Generator Studio",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /ai-generator"
+      },
+      {
+        "type": "action",
+        "description": "Select a programming language"
+      },
+      {
+        "type": "action",
+        "description": "Select a difficulty level"
+      },
+      {
+        "type": "action",
+        "description": "Select a length mode"
+      },
+      {
+        "type": "action",
+        "description": "Fill in custom prompt instructions"
+      },
+      {
+        "type": "action",
+        "description": "Generate the snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a generated code preview is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Start practice with the generated snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a practice session starts from the generated code"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Browse templates and launch practice from a template",
+    "description": "Verifies that a user can filter or browse templates, open a template detail view, and launch a practice session from it.",
+    "category": "Code Templates Catalog & Custom Template Creator",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /templates"
+      },
+      {
+        "type": "action",
+        "description": "Browse the template catalog"
+      },
+      {
+        "type": "action",
+        "description": "Open a template detail view"
+      },
+      {
+        "type": "action",
+        "description": "Launch practice from the selected template"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a practice session starts from the selected template"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected template content is shown in practice"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Use typing guidance while practicing",
+    "description": "Verifies that a user sees keyboard guidance and progress feedback while typing through a drill and can complete it end to end.",
+    "category": "Code Typing Practice Workspace",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /practice"
+      },
+      {
+        "type": "action",
+        "description": "Start typing the displayed snippet"
+      },
+      {
+        "type": "action",
+        "description": "Continue typing several characters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify live typing metrics are updating"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify virtual keyboard guidance is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Finish typing the snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a completion confetti effect is shown"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Review reports for practice trends and error breakdowns",
+    "description": "Verifies that a user can open reports and inspect progress trends together with syntax error categorization across sessions.",
+    "category": "Reports Analytics Review",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Review the session analytics view"
+      },
+      {
+        "type": "action",
+        "description": "Inspect the performance trend display"
+      },
+      {
+        "type": "action",
+        "description": "Inspect the syntax error breakdown display"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify practice trend data is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify error category diagnostics are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "Review analytics overview and session history",
+    "description": "This test verifies that a user can open reports, review key performance charts, and inspect recent session history entries.",
+    "category": "Diagnostic Reports & Telemetry Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Scroll to the analytics overview section"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify speed and accuracy trend charts are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify session history entries are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC011",
+    "title": "Create and save a custom template",
+    "description": "Verifies that a user can create a new custom template with code metadata and save it to the library for later use.",
+    "category": "Code Templates Catalog & Custom Template Creator",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /templates"
+      },
+      {
+        "type": "action",
+        "description": "Open the create template flow"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a title for the template"
+      },
+      {
+        "type": "action",
+        "description": "Select a programming language"
+      },
+      {
+        "type": "action",
+        "description": "Select a difficulty level"
+      },
+      {
+        "type": "action",
+        "description": "Fill in tags for the template"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the code body"
+      },
+      {
+        "type": "action",
+        "description": "Save the template"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new template appears in the library"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the saved template can be opened"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC012",
+    "title": "Search the leaderboard for a user and review rankings",
+    "description": "This test verifies that a user can search the leaderboard and inspect the resulting ranking table and podium.",
+    "category": "Global Leaderboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Search for a username"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify matching leaderboard results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the podium remains visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC013",
+    "title": "Search leaderboard rankings and filter by scope",
+    "description": "Verifies that a user can browse competitive rankings, change the timeframe or language filter, and find a competitor by search.",
+    "category": "Leaderboard Rankings",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Choose a timeframe filter"
+      },
+      {
+        "type": "action",
+        "description": "Choose a language filter"
+      },
+      {
+        "type": "action",
+        "description": "Search for a competitor"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify matching leaderboard results are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify ranking positions are visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC014",
+    "title": "Filter reports by timeframe and review updated insights",
+    "description": "This test verifies that changing the reports timeframe updates the analytics summary and drill history view.",
+    "category": "Diagnostic Reports & Telemetry Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Select a shorter timeframe filter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the analytics summary updates for the selected timeframe"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the drill history list updates"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC015",
+    "title": "Save a generated snippet to the template library",
+    "description": "Verifies that a user can generate a snippet, review it, and save it as a reusable template.",
+    "category": "AI Practice Generator Studio",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /ai-generator"
+      },
+      {
+        "type": "action",
+        "description": "Select a programming language"
+      },
+      {
+        "type": "action",
+        "description": "Select a difficulty level"
+      },
+      {
+        "type": "action",
+        "description": "Select a length mode"
+      },
+      {
+        "type": "action",
+        "description": "Fill in custom prompt instructions"
+      },
+      {
+        "type": "action",
+        "description": "Generate the snippet"
+      },
+      {
+        "type": "action",
+        "description": "Save the snippet to the template library"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the saved template appears in the template library"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC016",
+    "title": "Create a custom multiplayer room and start a match",
+    "description": "This test verifies that a user can create a custom room, wait for participants, start the race, and view the match outcome.",
+    "category": "Multiplayer Arena",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /multiplayer"
+      },
+      {
+        "type": "action",
+        "description": "Select custom room mode"
+      },
+      {
+        "type": "action",
+        "description": "Create a room with valid settings"
+      },
+      {
+        "type": "action",
+        "description": "Wait for the room lobby to become ready"
+      },
+      {
+        "type": "action",
+        "description": "Start the race"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the match summary is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify podium standings are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC017",
+    "title": "Filter leaderboard by timeframe and language",
+    "description": "This test verifies that leaderboard rankings update when the user changes the timeframe and language filters.",
+    "category": "Global Leaderboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Select a different timeframe"
+      },
+      {
+        "type": "action",
+        "description": "Select a programming language filter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the leaderboard table updates"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the podium updates for the selected filters"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC018",
+    "title": "Filter reports by timeframe",
+    "description": "Verifies that a user can change the report timeframe and see the analytics update accordingly.",
+    "category": "Reports Analytics Review",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Choose a different timeframe filter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the report view updates for the selected timeframe"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify updated analytics data is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC019",
+    "title": "View multiplayer rating changes after a race",
+    "description": "This test verifies that a completed multiplayer race shows updated standings and rating information.",
+    "category": "Multiplayer Arena",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /multiplayer"
+      },
+      {
+        "type": "action",
+        "description": "Select a race mode"
+      },
+      {
+        "type": "action",
+        "description": "Join the matchmaking queue"
+      },
+      {
+        "type": "action",
+        "description": "Complete the race snippet"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify rating changes are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the final ranking table is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC020",
+    "title": "Customize typing preferences and save them",
+    "description": "Verifies that a user can change typing preferences in settings and keep the updated configuration.",
+    "category": "User Settings & Typing Preferences",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Toggle key click sound effects"
+      },
+      {
+        "type": "action",
+        "description": "Select a switch sound theme"
+      },
+      {
+        "type": "action",
+        "description": "Adjust the caret style and editor font preferences"
+      },
+      {
+        "type": "action",
+        "description": "Save the settings changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated typing preferences are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC021",
+    "title": "Inspect syntax error categories in reports",
+    "description": "This test verifies that a user can review the syntax error breakdown and compare the main error categories.",
+    "category": "Diagnostic Reports & Telemetry Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Scroll to the syntax error analysis section"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a syntax error breakdown is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify error categories for brackets, punctuation, identifiers, and whitespace are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC022",
+    "title": "Change typing preferences in settings",
+    "description": "Verifies that a user can update typing preferences in settings and see the chosen preferences reflected in the interface.",
+    "category": "Settings & Preferences",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Change a typing preference"
+      },
+      {
+        "type": "action",
+        "description": "Change the theme preference"
+      },
+      {
+        "type": "action",
+        "description": "Change the caret preference"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the selected preferences are displayed as active"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify settings changes are reflected in the page"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC023",
+    "title": "Browse multiplayer lobbies and join a suitable match",
+    "description": "This test verifies that a user can browse available lobbies, choose one that fits the desired mode, and enter the race.",
+    "category": "Multiplayer Arena",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /multiplayer"
+      },
+      {
+        "type": "action",
+        "description": "Browse the available lobbies"
+      },
+      {
+        "type": "action",
+        "description": "Join a suitable lobby"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the lobby details are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the race participants are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC024",
+    "title": "View profile performance overview",
+    "description": "Verifies that a user can open the profile page and inspect level, XP, typing performance, and activity information.",
+    "category": "Developer Profile & Friends Network",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /profile"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify level progression information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify typing performance statistics are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC025",
+    "title": "Update profile identity details",
+    "description": "Verifies that a user can edit identity fields in the profile and return to see the saved profile information.",
+    "category": "Developer Profile & Friends Network",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /profile"
+      },
+      {
+        "type": "action",
+        "description": "Open the profile edit flow"
+      },
+      {
+        "type": "action",
+        "description": "Change the display name"
+      },
+      {
+        "type": "action",
+        "description": "Save the profile updates"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated identity details are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC026",
+    "title": "Review language performance insights in reports",
+    "description": "This test verifies that a user can compare performance across languages from the analytics page.",
+    "category": "Diagnostic Reports & Telemetry Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Scroll to the language performance section"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify language performance analytics are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify comparative performance data is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC027",
+    "title": "Inspect the full leaderboard table and top podium",
+    "description": "This test verifies that a user can review the top-ranking cards and scroll through the broader leaderboard table.",
+    "category": "Global Leaderboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Scroll to the ranking table"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify top three podium cards are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the leaderboard table is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC028",
+    "title": "View profile progression after repeated practice",
+    "description": "Verifies that a user can open the profile page and inspect updated XP, level progression, and friend statistics after practice activity.",
+    "category": "Profile Progression & Friends",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /profile"
+      },
+      {
+        "type": "action",
+        "description": "Review the profile progression area"
+      },
+      {
+        "type": "action",
+        "description": "Review the friends statistics area"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify XP or level progression is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify profile stats are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC029",
+    "title": "Compare leaderboard metric views",
+    "description": "This test verifies that the leaderboard can switch between speed and XP views and recalculate standings.",
+    "category": "Global Leaderboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Change the metric view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the rankings are updated for the selected metric"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the current user's standing is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC030",
+    "title": "Filter achievements by category and status",
+    "description": "Verifies that a user can narrow achievements by category and unlock state and still see the expected badge progress information.",
+    "category": "Gamified Achievements",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /achievements"
+      },
+      {
+        "type": "action",
+        "description": "Select a specific achievement category"
+      },
+      {
+        "type": "action",
+        "description": "Toggle the unlocked achievements view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify only unlocked achievements are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify achievement progress information is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC031",
+    "title": "Add and remove a friend by handle",
+    "description": "Verifies that a user can add a friend from the profile and then remove that friend from the network list.",
+    "category": "Developer Profile & Friends Network",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /profile"
+      },
+      {
+        "type": "action",
+        "description": "Open the friend management flow"
+      },
+      {
+        "type": "action",
+        "description": "Add a friend by handle"
+      },
+      {
+        "type": "action",
+        "description": "Remove the added friend"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the friends list updates after the add and remove actions"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC032",
+    "title": "Inspect achievements and badge progress",
+    "description": "Verifies that a user can open achievements and review unlocked badges together with remaining progress toward new achievements.",
+    "category": "Achievements Progress Tracking",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /achievements"
+      },
+      {
+        "type": "action",
+        "description": "Review the achievement categories"
+      },
+      {
+        "type": "action",
+        "description": "Review badge progress details"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify achievement badges are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify achievement progress indicators are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC033",
+    "title": "Export telemetry data from reports",
+    "description": "This test verifies that a user can export session analytics data from the reports page.",
+    "category": "Diagnostic Reports & Telemetry Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Click the export control for session data"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an export confirmation is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the reports page remains available after export"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC034",
+    "title": "Review a locked achievement's details",
+    "description": "Verifies that a user can open an achievement and inspect its requirement, reward, and progress state.",
+    "category": "Gamified Achievements",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /achievements"
+      },
+      {
+        "type": "action",
+        "description": "Open an achievement detail view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the achievement requirement information is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the achievement reward information is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC035",
+    "title": "Switch to locked achievements and inspect progress",
+    "description": "Verifies that a user can switch to locked achievements and confirm in-progress badges still show their completion status.",
+    "category": "Gamified Achievements",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /achievements"
+      },
+      {
+        "type": "action",
+        "description": "Toggle the locked achievements view"
+      },
+      {
+        "type": "action",
+        "description": "Select a specific achievement category"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify locked achievements are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify tiered progress bars are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC036",
+    "title": "Review friends network stats",
+    "description": "Verifies that a user can inspect the friends list and see friend status and performance information.",
+    "category": "Developer Profile & Friends Network",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /profile"
+      },
+      {
+        "type": "action",
+        "description": "Open the friends list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the friends network list is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify friend status or typing statistics are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC037",
+    "title": "Review all achievement categories",
+    "description": "Verifies that a user can move across achievement categories and see the badge list update accordingly.",
+    "category": "Gamified Achievements",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /achievements"
+      },
+      {
+        "type": "action",
+        "description": "Select a specific achievement category"
+      },
+      {
+        "type": "action",
+        "description": "Select a different achievement category"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the achievement list updates to the selected category"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify badge progress information remains visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC038",
+    "title": "Toggle instant restart preference and keep it active",
+    "description": "Verifies that a user can enable or disable the instant restart shortcut and preserve that control preference.",
+    "category": "User Settings & Typing Preferences",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Toggle the instant restart shortcut preference"
+      },
+      {
+        "type": "action",
+        "description": "Save the settings changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated shortcut preference is displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC039",
+    "title": "Handle an empty leaderboard search",
+    "description": "Verifies that a leaderboard search with no matches shows an empty state instead of results.",
+    "category": "Leaderboard Rankings",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Search for a unique term with no expected matches"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty state message is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no leaderboard results are shown"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC040",
+    "title": "Load demo analytics from an empty reports state",
+    "description": "This test verifies that an empty analytics state can be populated with demo data and then show charts and history records.",
+    "category": "Diagnostic Reports & Telemetry Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /reports"
+      },
+      {
+        "type": "action",
+        "description": "Load demo data from the empty state"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify analytics charts are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify session history records are displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC041",
+    "title": "Reset settings to defaults",
+    "description": "Verifies that a user can reset preferences in settings and return to the default typing configuration.",
+    "category": "User Settings & Typing Preferences",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Open the account data controls"
+      },
+      {
+        "type": "action",
+        "description": "Choose to reset preferences"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the reset"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the default typing configuration is restored"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC042",
+    "title": "See empty leaderboard results for a narrow search",
+    "description": "This test verifies that searching for a term with no matching users shows an empty results state instead of rankings.",
+    "category": "Global Leaderboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leaderboard"
+      },
+      {
+        "type": "action",
+        "description": "Search for a username with no matches"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty results message is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the search filter remains applied"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC043",
+    "title": "Review settings account data fields",
+    "description": "Verifies that a user can open the settings account data area and inspect saved identity-related configuration.",
+    "category": "User Settings & Typing Preferences",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /settings"
+      },
+      {
+        "type": "action",
+        "description": "Open the account data controls"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify account data settings are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify saved identity information is visible"
+      }
+    ],
+    "priority": "Low"
+  }
+]

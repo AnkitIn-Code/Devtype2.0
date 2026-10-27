@@ -1,0 +1,76 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: devtype-backend-test
+
+  datasource:
+    url: jdbc:h2:mem:devtypedb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;INIT=CREATE DOMAIN IF NOT EXISTS TIMESTAMPTZ AS TIMESTAMP WITH TIME ZONE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: devtype-backend-test
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+
+devtype:
+  cors:
+    allowed-origins: http://localhost:5173
+    allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+  jwt:
+    issuer: devtype-backend-test
+    secret: devtype-default-secure-hmac-sha256-signing-secret-key-at-least-256-bits!
+    access-token-expiration-seconds: 900
+  fireworks:
+    api-key: test-mock-fireworks-api-key
+    model: accounts/fireworks/models/deepseek-v4-pro-0813
+    base-url: https://api.fireworks.ai/inference/v1
+    connect-timeout-seconds: 5
+    read-timeout-seconds: 10
+    rate-limit-per-hour: 20
+

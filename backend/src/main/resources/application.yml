@@ -1,0 +1,117 @@
+server:
+  port: ${PORT:${SERVER_PORT:8080}}
+  servlet:
+    context-path: /
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false
+
+spring:
+  application:
+    name: devtype-backend
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_MAX_POOL_SIZE:10}
+      minimum-idle: ${DB_MIN_IDLE:2}
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      pool-name: DevTypeHikariPool
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    validate-on-migrate: false
+    locations: classpath:db/migration
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    show-sql: ${SHOW_SQL:false}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          lob:
+            non_contextual_creation: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: ${ACTUATOR_HEALTH_DETAILS:never}
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name:devtype-backend}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+      sla:
+        http.server.requests: 100ms, 250ms, 500ms, 1s, 2s
+  info:
+    env:
+      enabled: false
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [${spring.application.name:devtype-backend},%X{correlationId:-}] [%t] %-40.40logger{39} : %m%n"
+
+# Custom DevType Application Configuration
+devtype:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173}
+    allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+    allowed-headers: "*"
+    allow-credentials: true
+    max-age: 3600
+  jwt:
+    issuer: ${JWT_ISSUER:devtype-backend}
+    secret: ${JWT_SECRET:devtype-default-secure-hmac-sha256-signing-secret-key-at-least-256-bits!}
+    access-token-expiration-seconds: ${JWT_EXPIRATION_SECONDS:2592000}
+  demo-data:
+    enabled: ${DEVTYPE_DEMO_DATA_ENABLED:${APP_DEMO_DATA_ENABLED:false}}
+    default-password: ${DEMO_USER_PASSWORD:DemoPassword123!}
+  admin:
+    bootstrap:
+      enabled: ${DEVTYPE_ADMIN_BOOTSTRAP_ENABLED:false}
+      username: ${DEVTYPE_ADMIN_BOOTSTRAP_USERNAME:admin}
+      email: ${DEVTYPE_ADMIN_BOOTSTRAP_EMAIL:admin@devtype.io}
+      password: ${DEVTYPE_ADMIN_BOOTSTRAP_PASSWORD:}
+      display-name: ${DEVTYPE_ADMIN_BOOTSTRAP_NAME:DevType Administrator}
+  fireworks:
+    api-key: ${FIREWORKS_API_KEY:}
+    model: ${FIREWORKS_MODEL:accounts/fireworks/models/deepseek-v4-pro-0813}
+    base-url: ${FIREWORKS_BASE_URL:https://api.fireworks.ai/inference/v1}
+    connect-timeout-seconds: ${FIREWORKS_CONNECT_TIMEOUT_SECONDS:10}
+    read-timeout-seconds: ${FIREWORKS_READ_TIMEOUT_SECONDS:45}
+    rate-limit-per-hour: ${FIREWORKS_RATE_LIMIT_PER_HOUR:15}
+

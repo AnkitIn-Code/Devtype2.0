@@ -33,6 +33,24 @@ export const DIFFICULTY_CONFIG = {
     border: 'rgba(225, 29, 72, 0.22)',
     label: 'Advanced',
   },
+  BEGINNER: {
+    color: '#059669',
+    bg: 'rgba(5, 150, 105, 0.1)',
+    border: 'rgba(5, 150, 105, 0.22)',
+    label: 'Beginner',
+  },
+  INTERMEDIATE: {
+    color: '#D97706',
+    bg: 'rgba(217, 119, 6, 0.1)',
+    border: 'rgba(217, 119, 6, 0.22)',
+    label: 'Intermediate',
+  },
+  ADVANCED: {
+    color: '#E11D48',
+    bg: 'rgba(225, 29, 72, 0.1)',
+    border: 'rgba(225, 29, 72, 0.22)',
+    label: 'Advanced',
+  },
 };
 
 /**

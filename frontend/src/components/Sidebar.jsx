@@ -1,11 +1,14 @@
-// src/components/Sidebar.jsx
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileCode2, Sparkles, BarChart2,
-  Users, Trophy, Star, Settings, Plus
+  Users, Trophy, Star, Settings, Plus, LogOut, Brain, Terminal, Shield, X
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useShortcuts } from '../utils/shortcutsStore';
+import PracticeShortcutsModal from './common/PracticeShortcutsModal';
 
-/* ── Handcrafted CodeType logo — pure SVG ── */
+/* ── Handcrafted DevType logo — pure SVG ── */
 function LogoMark() {
   return (
     <div className="logo-mark">
@@ -22,117 +25,182 @@ function LogoMark() {
 }
 
 const NAV = [
-  { icon: LayoutDashboard, label: 'Dashboard',    to: '/dashboard' },
-  { icon: FileCode2,       label: 'Templates',    to: '/templates' },
-  { icon: Sparkles,        label: 'AI Generator', to: '/ai-generator' },
-  { icon: BarChart2,       label: 'Reports',      to: '/reports' },
-  { icon: Users,           label: 'Multiplayer',  to: '/multiplayer' },
-  { icon: Trophy,          label: 'Leaderboard',  to: '/leaderboard' },
-  { icon: Star,            label: 'Achievements', to: '/achievements' },
+  { icon: LayoutDashboard, label: 'Dashboard',     to: '/dashboard' },
+  { icon: Brain,           label: 'SRS Revision',  to: '/revision' },
+  { icon: FileCode2,       label: 'Templates',     to: '/templates' },
+  { icon: Terminal,        label: 'Custom Studio', to: '/custom-studio' },
+  { icon: BarChart2,       label: 'Reports',       to: '/reports' },
+  { icon: Users,           label: 'Multiplayer',   to: '/multiplayer' },
+  { icon: Trophy,          label: 'Leaderboard',   to: '/leaderboard' },
+  { icon: Star,            label: 'Achievements',  to: '/achievements' },
 ];
 
-/* Minimal native macOS workspace items */
-const WORKSPACE = [
-  { name: 'LRU Cache',       lang: 'C++',    ago: '30m ago', to: '/practice?snippet=cpp-lru-cache' },
-  { name: 'Binary Search',   lang: 'C++',    ago: '1d ago',  to: '/practice?snippet=cpp-binary-search' },
-  { name: 'Two Sum',         lang: 'Python', ago: '2d ago',  to: '/practice?snippet=py-two-sum' },
-  { name: 'Debounce Fn',     lang: 'JS',     ago: '3d ago',  to: '/practice?snippet=js-debounce' },
-];
-
-export default function Sidebar() {
+export default function Sidebar({ mobileOpen = false, onNavigate, closeButtonRef }) {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const { shortcuts, removeShortcut } = useShortcuts();
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+
+  const displayName = user?.displayName || user?.username || 'Developer';
+  const userInitials = (displayName || 'DT')
+    .split(' ')
+    .map((w) => w[0])
+    .filter(Boolean)
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+  const handleLogout = (e) => {
+    e.stopPropagation();
+    logout();
+    navigate('/login', { state: { notice: 'You have been successfully logged out.' } });
+  };
 
   return (
-    <aside className="sidebar">
-      {/* ── macOS traffic lights ── */}
-      <div className="sidebar-traffic-lights">
-        <div className="tl tl-close"    title="Close" />
-        <div className="tl tl-minimize" title="Minimize" />
-        <div className="tl tl-maximize" title="Zoom" />
-      </div>
+    <>
+      <aside id="workspace-navigation" className={`sidebar ${mobileOpen ? 'is-mobile-open' : ''}`} onClick={event => { if (event.target.closest('a')) onNavigate?.(); }}>
+        <button ref={closeButtonRef} className="icon-btn workspace-close-button" aria-label="Close navigation" onClick={onNavigate}><X size={20} /></button>
 
-      {/* ── Logo ── */}
-      <div className="sidebar-logo-row">
-        <LogoMark />
-        <span className="logo-wordmark">CodeType</span>
-      </div>
+        {/* ── Logo ── */}
+        <div className="sidebar-logo-row">
+          <LogoMark />
+          <span className="logo-wordmark">DevType</span>
+        </div>
 
-      <div className="sidebar-scroll">
-        {/* ── Navigation ── */}
-        <div className="nav-group">
-          {NAV.map(({ icon: Icon, label, to }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+        <div className="sidebar-scroll">
+          {/* ── Navigation ── */}
+          <div className="nav-group">
+            {NAV.map(({ icon: Icon, label, to }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              >
+                <Icon size={18} strokeWidth={2} />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+
+            {user?.role === 'ADMIN' && (
+              <NavLink
+                to="/admin"
+                className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              >
+                <Shield size={18} strokeWidth={2} />
+                <span style={{ fontWeight: 600 }}>Admin Console</span>
+              </NavLink>
+            )}
+          </div>
+
+          {/* ── Workspace ── */}
+          <div className="nav-section-label">
+            <span>Practice shortcuts</span>
+            <button
+              type="button"
+              className="shortcuts-add-trigger-btn"
+              title="Manage practice shortcuts"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsShortcutsModalOpen(true);
+              }}
+              aria-label="Manage practice shortcuts"
             >
-              <Icon size={18} strokeWidth={2} />
-              <span>{label}</span>
+              <Plus size={14} strokeWidth={2.2} />
+            </button>
+          </div>
+
+          <div className="ws-group">
+            {shortcuts.map((item) => {
+              const SourceIcon = item.source === 'srs' ? Brain : item.source === 'custom' ? Terminal : FileCode2;
+              return (
+                <div key={item.id} className="ws-item-wrapper">
+                  <NavLink
+                    to={item.to}
+                    className="ws-item"
+                    title={`Open ${item.name} (${item.lang})`}
+                    onClick={() => onNavigate?.()}
+                  >
+                    <SourceIcon size={16} strokeWidth={1.8} className="ws-file-icon" />
+                    <div className="ws-info">
+                      <div className="ws-name">{item.name}</div>
+                      <div className="ws-meta">{item.lang}</div>
+                    </div>
+                  </NavLink>
+                  <button
+                    type="button"
+                    className="ws-quick-remove"
+                    title={`Remove ${item.name} from shortcuts`}
+                    aria-label={`Remove ${item.name} from shortcuts`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      removeShortcut(item.id);
+                    }}
+                  >
+                    <X size={12} strokeWidth={2.4} />
+                  </button>
+                </div>
+              );
+            })}
+
+            {shortcuts.length === 0 && (
+              <button
+                type="button"
+                className="ws-empty-prompt"
+                onClick={() => setIsShortcutsModalOpen(true)}
+              >
+                <Plus size={13} />
+                <span>Add shortcut...</span>
+              </button>
+            )}
+          </div>
+
+          {/* ── Settings (pushed toward bottom) ── */}
+          <div style={{ marginTop: 'auto', paddingTop: 14 }}>
+            <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
+              <Settings size={18} strokeWidth={2} />
+              <span>Settings</span>
+              <span style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--t3)' }}>›</span>
             </NavLink>
-          ))}
-        </div>
-
-        {/* ── Workspace ── */}
-        <div className="nav-section-label">
-          <span>Workspace</span>
-          <button
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--t3)', display: 'flex', alignItems: 'center',
-              padding: '0 2px',
-            }}
-            title="Start new practice"
-            onClick={() => navigate('/practice')}
-          >
-            <Plus size={14} strokeWidth={2.2} />
-          </button>
-        </div>
-
-        <div className="ws-group">
-          {WORKSPACE.map(item => (
-            <div
-              key={item.name}
-              className="ws-item"
-              onClick={() => navigate(item.to)}
-              title={`Open ${item.name}`}
-            >
-              <FileCode2 size={16} strokeWidth={1.8} className="ws-file-icon" />
-              <div className="ws-info">
-                <div className="ws-name">{item.name}</div>
-                <div className="ws-meta">{item.lang} · {item.ago}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Settings (pushed toward bottom) ── */}
-        <div style={{ marginTop: 'auto', paddingTop: 14 }}>
-          <NavLink to="/settings" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-            <Settings size={18} strokeWidth={2} />
-            <span>Settings</span>
-            <span style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--t3)' }}>›</span>
-          </NavLink>
-        </div>
-      </div>
-
-      {/* ── User footer (Modern Apple Silicon Obsidian & Cobalt) ── */}
-      <div className="sidebar-footer">
-        <div
-          className="user-row"
-          onClick={() => navigate('/profile')}
-          style={{ cursor: 'pointer' }}
-          title="View your developer profile"
-        >
-          <div className="user-avatar">SP</div>
-          <div className="user-info">
-            <div className="user-name">Alex Spoor</div>
-            <div className="user-level">Level 24 · 24.8k XP</div>
-            <div className="xp-bar">
-              <div className="xp-bar-fill" style={{ width: '82%' }} />
-            </div>
           </div>
         </div>
-      </div>
-    </aside>
+
+        {/* ── User footer (Modern Apple Silicon Obsidian & Cobalt) ── */}
+        <div className="sidebar-footer">
+          <div
+            className="user-row"
+            onClick={() => { onNavigate?.(); navigate('/profile'); }}
+            style={{ cursor: 'pointer' }}
+            title="View your developer profile"
+          >
+            <div className="user-avatar">{userInitials}</div>
+            <div className="user-info">
+              <div className="user-name">{displayName}</div>
+              <div className="user-level">
+                Lvl {user?.level || 1} · {(user?.totalXp || 0).toLocaleString()} XP
+              </div>
+              <div className="xp-bar">
+                <div className="xp-bar-fill" style={{ width: `${Math.min(100, Math.max(0, user?.levelProgressPercent || 0))}%` }} />
+              </div>
+            </div>
+            <button
+              type="button"
+              className="sidebar-logout-icon-btn"
+              title="Sign out of account"
+              onClick={handleLogout}
+              aria-label="Log Out"
+            >
+              <LogOut size={15} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <PracticeShortcutsModal
+        isOpen={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
+      />
+    </>
   );
 }

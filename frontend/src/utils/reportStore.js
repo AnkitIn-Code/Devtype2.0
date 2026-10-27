@@ -320,11 +320,17 @@ export const DETERMINISTIC_DEMO_SESSIONS = [
 ];
 
 /**
- * Load saved real sessions from localStorage
+ * Load saved real sessions from localStorage, scoped per user ID
  */
-export function getSavedSessions() {
+export function getSavedSessions(userId) {
   try {
-    const raw = localStorage.getItem('devtype_sessions');
+    let raw = null;
+    if (userId) {
+      raw = localStorage.getItem(`devtype_sessions_${userId}`);
+    }
+    if (!raw) {
+      raw = localStorage.getItem('devtype_sessions');
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -335,36 +341,53 @@ export function getSavedSessions() {
 }
 
 /**
- * Get active sessions based on user preference (prefer real, fallback or toggle demo)
+ * Save completed session to user-scoped and global localStorage
  */
-export function getSessions({ forceDemo = false } = {}) {
-  const real = getSavedSessions();
+export function saveUserSession(session, userId) {
+  if (!session) return;
+  try {
+    const userKey = userId ? `devtype_sessions_${userId}` : 'devtype_sessions';
+    const existingRaw = localStorage.getItem(userKey);
+    const existing = existingRaw ? JSON.parse(existingRaw) : [];
+    const updated = [session, ...existing.filter((s) => s.id !== session.id)].slice(0, 100);
+    localStorage.setItem(userKey, JSON.stringify(updated));
+
+    // Also mirror into global key for quick access
+    if (userId) {
+      const globalRaw = localStorage.getItem('devtype_sessions');
+      const globalExisting = globalRaw ? JSON.parse(globalRaw) : [];
+      const globalUpdated = [session, ...globalExisting.filter((s) => s.id !== session.id)].slice(0, 100);
+      localStorage.setItem('devtype_sessions', JSON.stringify(globalUpdated));
+    }
+  } catch (err) {
+    console.warn('Failed to save session to localStorage', err);
+  }
+}
+
+/**
+ * Get active sessions based on user preference (strictly authentic, zero mock fallback unless forceDemo requested)
+ */
+export function getSessions({ userId, forceDemo = false } = {}) {
   if (forceDemo) return DETERMINISTIC_DEMO_SESSIONS;
-  if (real.length > 0) return real;
-  return DETERMINISTIC_DEMO_SESSIONS;
+  return getSavedSessions(userId);
 }
 
 /**
  * Filter sessions by date range: '7d', '30d', '90d', 'all'
- * Reference date anchored to 2026-10-16 for consistency
+ * Accurately calculated from the current timestamp.
  */
 export function filterSessionsByRange(sessions, range = '30d') {
   if (!sessions || sessions.length === 0) return [];
   if (range === 'all') return [...sessions];
 
-  // Anchor relative to newest session in dataset or current time
-  const timestamps = sessions
-    .map((s) => new Date(s.date).getTime())
-    .filter((t) => !isNaN(t));
-  const maxSessionTime = timestamps.length > 0 ? Math.max(...timestamps) : Date.now();
-  const now = Math.max(Date.now(), maxSessionTime);
-
+  const now = Date.now();
   const daysMap = { '7d': 7, '30d': 30, '90d': 90 };
   const cutoffDays = daysMap[range] || 30;
   const cutoffTime = now - cutoffDays * 24 * 60 * 60 * 1000;
 
   return sessions.filter((s) => {
-    const sTime = new Date(s.date).getTime();
+    const dateVal = s.date || s.completedAt || s.startedAt;
+    const sTime = new Date(dateVal).getTime();
     return !isNaN(sTime) && sTime >= cutoffTime;
   });
 }

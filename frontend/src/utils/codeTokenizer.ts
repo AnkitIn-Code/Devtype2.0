@@ -90,10 +90,10 @@ function flattenPrismTokens(
 /**
  * Tokenizes a code snippet into structured lines and indexed characters.
  */
-export function tokenizeCodeSnippet(code: string, language: string): TokenizedSnippet {
+export function tokenizeCodeSnippet(code: string = '', language: string = 'javascript'): TokenizedSnippet {
   // Normalize line breaks to \n and trim trailing blank lines for clean layout
-  const cleanCode = code.replace(/\r\n/g, '\n').trimEnd();
-  const prismLangKey = normalizeLang(language);
+  const cleanCode = (code || '').replace(/\r\n/g, '\n').trimEnd();
+  const prismLangKey = normalizeLang(language || 'javascript');
   const grammar = Prism.languages[prismLangKey] || Prism.languages.javascript;
 
   const prismTokens = Prism.tokenize(cleanCode, grammar);

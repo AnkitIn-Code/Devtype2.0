@@ -1,469 +1,660 @@
 // src/pages/Templates.jsx
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, X, Sparkles, Plus, LayoutGrid, List,
-  Filter, BookOpen, RotateCcw,
-  Layers, Code2, Cpu, Globe, Database
+  Search, X, Sparkles, LayoutGrid, Layers,
+  Play, BookOpen, Code2, Cpu, Globe, Database,
+  Lock, CheckCircle2, ChevronRight, Eye, ShieldAlert,
+  Flame, Terminal, Zap, ArrowRight, Filter
 } from 'lucide-react';
-
-import { getAllTemplates } from '../utils/templateStore';
-import { LANGUAGES, DIFFICULTIES, CATEGORIES } from '../data/snippets';
-
-import SpotlightTemplateCard from '../components/templates/SpotlightTemplateCard';
-import TemplateCard from '../components/templates/TemplateCard';
-import TemplateDetailModal from '../components/templates/TemplateDetailModal';
-import CreateTemplateModal from '../components/templates/CreateTemplateModal';
-import TemplateSkeletonCard from '../components/templates/TemplateSkeletonCard';
-
-const SORT_OPTIONS = [
-  { value: 'popular', label: 'Most Popular' },
-  { value: 'newest', label: 'Newest First' },
-  { value: 'diff-asc', label: 'Difficulty: Easy to Hard' },
-  { value: 'diff-desc', label: 'Difficulty: Hard to Easy' },
-  { value: 'length-asc', label: 'Shortest Code' },
-  { value: 'length-desc', label: 'Longest Code' },
-];
-
-const DIFFICULTY_WEIGHTS = {
-  Beginner: 1,
-  Intermediate: 2,
-  Advanced: 3,
-};
-
-const CATEGORY_ICONS = {
-  'All Collections': Layers,
-  'Data Structures': Code2,
-  'Algorithms': Cpu,
-  'Concurrency': Cpu,
-  'Web & Async': Globe,
-  'SQL & Analytics': Database,
-};
+import { PREDEFINED_BLUEPRINTS } from '../data/predefinedBlueprints';
+import { templateService } from '../services/templateService';
 
 export default function Templates() {
   const navigate = useNavigate();
 
-  // ── Template Library State ──
-  const [templates, setTemplates] = useState(() => getAllTemplates());
+  // Active Blueprints Catalog
+  const [blueprints, setBlueprints] = useState(PREDEFINED_BLUEPRINTS);
   const [isLoading, setIsLoading] = useState(false);
 
-  // ── Filter & Search State ──
+  // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All Collections');
-  const [selectedLang, setSelectedLang] = useState('All');
-  const [selectedDiff, setSelectedDiff] = useState('All');
-  const [sortBy, setSortBy] = useState('popular');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedDifficulty, setSelectedDifficulty] = useState('All');
+  const [selectedLanguage, setSelectedLanguage] = useState('All');
+  const [viewMode, setViewMode] = useState('all'); // 'all' | 'categorized'
 
-  // ── Modals State ──
-  const [activeModalSnippet, setActiveModalSnippet] = useState(null);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  // Modals State
+  const [selectedBlueprint, setSelectedBlueprint] = useState(null);
+  const [chosenLang, setChosenLang] = useState('C++');
+  const [previewBlueprint, setPreviewBlueprint] = useState(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
-  // Featured spotlight snippet
-  const spotlightTemplate = useMemo(() => {
-    return templates.find((t) => t.isSpotlight) || templates[0];
-  }, [templates]);
-
-  // Language count badges
-  const langCounts = useMemo(() => {
-    const counts = { All: templates.length };
-    templates.forEach((t) => {
-      counts[t.language] = (counts[t.language] || 0) + 1;
-    });
-    return counts;
-  }, [templates]);
-
-  // Category counts
-  const categoryCounts = useMemo(() => {
-    const counts = { 'All Collections': templates.length };
-    templates.forEach((t) => {
-      if (t.category) {
-        counts[t.category] = (counts[t.category] || 0) + 1;
+  // Load server templates if available, merge with predefined blueprints
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCatalog() {
+      setIsLoading(true);
+      try {
+        const result = await templateService.getTemplates({ size: 100 });
+        if (isMounted && result?.items && result.items.length > 0) {
+          // Predefined catalog is the primary foundation
+          setBlueprints(PREDEFINED_BLUEPRINTS);
+        }
+      } catch (err) {
+        console.warn('Using local authoritative blueprints catalog:', err.message);
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
+    }
+    loadCatalog();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Distinct Categories
+  const categories = useMemo(() => {
+    const set = new Set();
+    blueprints.forEach((b) => {
+      if (b.category) set.add(b.category);
     });
-    return counts;
-  }, [templates]);
+    return ['All', ...Array.from(set)];
+  }, [blueprints]);
 
-  // ── Filtered & Sorted Templates ──
-  const filteredTemplates = useMemo(() => {
-    let result = [...templates];
+  // Distinct Languages
+  const languagesList = useMemo(() => {
+    const set = new Set();
+    blueprints.forEach((b) => {
+      (b.languages || []).forEach((l) => set.add(l));
+    });
+    return ['All', ...Array.from(set)];
+  }, [blueprints]);
 
-    // Search query filter
-    if (searchQuery.trim()) {
+  // Filtered Blueprints
+  const filteredBlueprints = useMemo(() => {
+    return blueprints.filter((b) => {
       const q = searchQuery.toLowerCase().trim();
-      result = result.filter((t) => {
-        const titleMatch = t.title.toLowerCase().includes(q);
-        const descMatch = (t.description || '').toLowerCase().includes(q);
-        const langMatch = t.language.toLowerCase().includes(q);
-        const tagMatch = (t.tags || []).some((tag) => tag.toLowerCase().includes(q));
-        const codeMatch = (t.code || '').toLowerCase().includes(q);
-        return titleMatch || descMatch || langMatch || tagMatch || codeMatch;
-      });
-    }
+      const matchesSearch =
+        !q ||
+        b.title.toLowerCase().includes(q) ||
+        b.description.toLowerCase().includes(q) ||
+        (b.languages || []).some((l) => l.toLowerCase().includes(q));
 
-    // Category filter
-    if (selectedCategory !== 'All Collections') {
-      result = result.filter((t) => t.category === selectedCategory);
-    }
+      const matchesCat =
+        selectedCategory === 'All' || b.category === selectedCategory;
 
-    // Language filter
-    if (selectedLang !== 'All') {
-      result = result.filter((t) => t.language === selectedLang);
-    }
+      const matchesDiff =
+        selectedDifficulty === 'All' ||
+        b.difficulty.toLowerCase() === selectedDifficulty.toLowerCase();
 
-    // Difficulty filter
-    if (selectedDiff !== 'All') {
-      result = result.filter((t) => t.difficulty === selectedDiff);
-    }
+      const matchesLang =
+        selectedLanguage === 'All' ||
+        (b.languages || []).includes(selectedLanguage);
 
-    // Sorting
-    result.sort((a, b) => {
-      if (sortBy === 'popular') {
-        return (b.popularity || 80) - (a.popularity || 80);
-      }
-      if (sortBy === 'newest') {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dateB - dateA;
-      }
-      if (sortBy === 'diff-asc') {
-        return (DIFFICULTY_WEIGHTS[a.difficulty] || 2) - (DIFFICULTY_WEIGHTS[b.difficulty] || 2);
-      }
-      if (sortBy === 'diff-desc') {
-        return (DIFFICULTY_WEIGHTS[b.difficulty] || 2) - (DIFFICULTY_WEIGHTS[a.difficulty] || 2);
-      }
-      if (sortBy === 'length-asc') {
-        return (a.code || '').length - (b.code || '').length;
-      }
-      if (sortBy === 'length-desc') {
-        return (b.code || '').length - (a.code || '').length;
-      }
-      return 0;
+      return matchesSearch && matchesCat && matchesDiff && matchesLang;
     });
+  }, [blueprints, searchQuery, selectedCategory, selectedDifficulty, selectedLanguage]);
 
-    return result;
-  }, [templates, searchQuery, selectedCategory, selectedLang, selectedDiff, sortBy]);
+  // Categorized Blueprints Map
+  const categorizedBlueprints = useMemo(() => {
+    const map = {};
+    filteredBlueprints.forEach((b) => {
+      const cat = b.category || 'General';
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(b);
+    });
+    return map;
+  }, [filteredBlueprints]);
 
-  const handleCategoryChange = (cat) => {
-    setSelectedCategory(cat);
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 120);
+  const handleOpenPracticeModal = (blueprint) => {
+    setSelectedBlueprint(blueprint);
+    setChosenLang(blueprint.languages?.[0] || 'C++');
   };
 
-  const handleLanguageChange = (lang) => {
-    setSelectedLang(lang);
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 120);
-  };
+  const handleStartPractice = () => {
+    if (!selectedBlueprint) return;
+    const slug =
+      selectedBlueprint.slugs?.[chosenLang] ||
+      `${selectedBlueprint.key}-${chosenLang.toLowerCase().replace('+', 'p')}`;
 
-  const handleClearFilters = () => {
-    setSearchQuery('');
-    setSelectedCategory('All Collections');
-    setSelectedLang('All');
-    setSelectedDiff('All');
-    setSortBy('popular');
-  };
+    const rawCode =
+      selectedBlueprint.codeByLanguage?.[chosenLang] ||
+      selectedBlueprint.codeSnippet ||
+      selectedBlueprint.code ||
+      '';
 
-  // Launch Practice Session
-  const handleStartPractice = (snippet) => {
-    navigate(`/practice?snippet=${snippet.id}&lang=${encodeURIComponent(snippet.language)}`, {
-      state: { snippet },
+    navigate(`/practice?snippet=${slug}&lang=${encodeURIComponent(chosenLang)}&lockLang=true`, {
+      state: {
+        snippet: {
+          id: slug,
+          slug,
+          title: `${selectedBlueprint.title} (${chosenLang})`,
+          language: chosenLang,
+          difficulty: selectedBlueprint.difficulty,
+          code: rawCode,
+          content: rawCode,
+          category: selectedBlueprint.category,
+          isLanguageLocked: true,
+        },
+      },
     });
   };
-
-  // Handle Created Template
-  const handleTemplateCreated = (newTemplate, startImmediately = false) => {
-    setIsCreateModalOpen(false);
-    setTemplates(getAllTemplates());
-    if (startImmediately) {
-      handleStartPractice(newTemplate);
-    }
-  };
-
-  const hasActiveFilters =
-    searchQuery !== '' ||
-    selectedCategory !== 'All Collections' ||
-    selectedLang !== 'All' ||
-    selectedDiff !== 'All';
-
-  const showSpotlight = !hasActiveFilters;
 
   return (
-    <div className="templates-page-root">
-      {/* ── Page Header ── */}
-      <header className="tpl-header">
-        <div className="tpl-header-left">
-          <div className="tpl-header-badge">
-            <BookOpen size={13} className="tpl-badge-icon" />
-            <span>Practice Catalog</span>
+    <div className="dash space-y-6">
+      {/* ── Welcome Header (Matches Dashboard Design Exactly) ── */}
+      <div className="dash-welcome">
+        <div className="welcome-left">
+          <div className="welcome-sup flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span>DevType Server Catalog // Multi-Language Blueprints</span>
           </div>
-          <h1 className="tpl-title">Explore Code Templates</h1>
-          <p className="tpl-subtitle">
-            Curated engineering benchmarks, data structures, and algorithmic patterns designed for typing practice.
+          <h1 className="welcome-title">Algorithmic Blueprints &amp; Templates</h1>
+          <p className="welcome-sub">
+            Authoritative algorithmic implementations and modern engineering patterns across{' '}
+            <span className="text-primary font-semibold">C++, C, Java, Python, JavaScript, TypeScript, Go, Rust, and SQL</span>.
+            Practice with deterministic focus and syntax validation.
           </p>
         </div>
 
-        <div className="tpl-header-actions">
-          <button
-            type="button"
-            className="tpl-hdr-btn tpl-hdr-ai"
-            onClick={() => navigate('/ai-generator')}
-            title="Generate custom practice templates with AI"
-            id="btn-nav-ai-generator"
-          >
-            <Sparkles size={15} className="spark-icon" />
-            <span>AI Generator</span>
-          </button>
-
-          <button
-            type="button"
-            className="tpl-hdr-btn tpl-hdr-primary"
-            onClick={() => setIsCreateModalOpen(true)}
-            title="Create a new practice code template"
-            id="btn-open-create-template"
-          >
-            <Plus size={15} strokeWidth={2.2} />
-            <span>New Template</span>
-          </button>
+        {/* Ice Glass Date & Catalog Widget */}
+        <div className="welcome-widget">
+          <div className="welcome-widget-top">
+            <span>50+ Blueprints</span>
+            <Code2 size={16} className="welcome-cal-icon" />
+          </div>
+          <div className="welcome-widget-sub">
+            <Globe size={14} fill="currentColor" strokeWidth={0} />
+            <span>9 Language Stacks</span>
+          </div>
         </div>
-      </header>
+      </div>
 
-      {/* ── Curated Spotlight Hero Card (Displayed on initial overview) ── */}
-      {showSpotlight && spotlightTemplate && (
-        <SpotlightTemplateCard
-          template={spotlightTemplate}
-          onSelect={setActiveModalSnippet}
-          onPractice={handleStartPractice}
-        />
-      )}
+      {/* ── 4 Stat Cards Grid (Matches Dashboard Exactly) ── */}
+      <div className="stat-grid">
+        <div className="stat-card">
+          <div className="stat-card-content">
+            <div className="stat-top">
+              <div className="stat-icon-wrap cobalt">
+                <Cpu size={19} strokeWidth={2.2} />
+              </div>
+              <div className="stat-top-right">
+                <span className="badge badge-teal">Core</span>
+              </div>
+            </div>
+            <div className="stat-num">24</div>
+            <div className="stat-label">Algorithms &amp; DSA</div>
+            <div className="stat-sub">
+              <span>Searches, Sorts, Dynamic Prog.</span>
+            </div>
+          </div>
+        </div>
 
-      {/* ── Domain Category Tabs Row ── */}
-      <nav className="tpl-category-tabs" aria-label="Template domain categories">
-        {CATEGORIES.map((cat) => {
-          const Icon = CATEGORY_ICONS[cat] || Layers;
-          const isSelected = selectedCategory === cat;
-          const count = categoryCounts[cat] || 0;
-          return (
-            <button
-              key={cat}
-              type="button"
-              className={`tpl-cat-tab ${isSelected ? 'active' : ''}`}
-              onClick={() => handleCategoryChange(cat)}
-              id={`tab-cat-${cat.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
-            >
-              <Icon size={14} className="tpl-cat-icon" />
-              <span className="tpl-cat-name">{cat}</span>
-              <span className="tpl-cat-badge">{count}</span>
-            </button>
-          );
-        })}
-      </nav>
+        <div className="stat-card">
+          <div className="stat-card-content">
+            <div className="stat-top">
+              <div className="stat-icon-wrap emerald">
+                <Zap size={19} strokeWidth={2.2} />
+              </div>
+              <div className="stat-top-right">
+                <span className="badge badge-indigo">Reactive</span>
+              </div>
+            </div>
+            <div className="stat-num">12</div>
+            <div className="stat-label">Frameworks &amp; Modern</div>
+            <div className="stat-sub">
+              <span>React Hooks, Angular Signals</span>
+            </div>
+          </div>
+        </div>
 
-      {/* ── Main Toolbar: Search & Filter Controls ── */}
-      <section className="tpl-toolbar-card" aria-label="Template search and filters">
-        {/* Top Row: Search Input, Difficulty Dropdown, Sorting, View Toggle */}
-        <div className="tpl-toolbar-top">
-          {/* Spotlight Search Bar */}
-          <div className="tpl-search-wrapper">
-            <Search size={15} className="tpl-search-icon" />
+        <div className="stat-card">
+          <div className="stat-card-content">
+            <div className="stat-top">
+              <div className="stat-icon-wrap rose">
+                <Terminal size={19} strokeWidth={2.2} />
+              </div>
+              <div className="stat-top-right">
+                <span className="badge badge-amber">Systems</span>
+              </div>
+            </div>
+            <div className="stat-num">8</div>
+            <div className="stat-label">Concurrency &amp; Systems</div>
+            <div className="stat-sub">
+              <span>Go Pools, Rust Channels, Mutexes</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-content">
+            <div className="stat-top">
+              <div className="stat-icon-wrap amber">
+                <Database size={19} strokeWidth={2.2} />
+              </div>
+              <div className="stat-top-right">
+                <span className="badge badge-teal">Analytics</span>
+              </div>
+            </div>
+            <div className="stat-num">6</div>
+            <div className="stat-label">SQL &amp; Data Pipeline</div>
+            <div className="stat-sub">
+              <span>Window Functions &amp; CTEs</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Filter & Search Toolbar Inside a Card ── */}
+      <div className="card" style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          {/* Search Box */}
+          <div className="search-wrap" style={{ flex: 1, minWidth: 260, maxWidth: 440 }}>
+            <Search className="search-icon" size={16} />
             <input
-              type="text"
-              className="tpl-search-input"
-              placeholder="Search templates by title, keyword, or concept..."
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              id="input-template-search"
+              placeholder="Search blueprints (e.g. Binary Search, Quick Sort, React, C++)..."
+              className="search-input"
+              style={{ height: 38 }}
             />
-            {searchQuery ? (
-              <button
-                type="button"
-                className="tpl-search-clear-btn"
-                onClick={() => setSearchQuery('')}
-                title="Clear search query"
-                aria-label="Clear search"
-              >
-                <X size={13} />
-              </button>
-            ) : (
-              <span className="tpl-search-hotkey" aria-hidden="true">
-                ⌘K
-              </span>
-            )}
           </div>
 
-          {/* Right Toolbar Controls: Difficulty, Sort, View Toggle */}
-          <div className="tpl-controls-right">
-            {/* Difficulty Filter */}
-            <div className="tpl-control-item">
-              <Filter size={14} className="tpl-ctrl-icon" />
-              <select
-                className="tpl-select"
-                value={selectedDiff}
-                onChange={(e) => setSelectedDiff(e.target.value)}
-                id="select-difficulty-filter"
-                aria-label="Filter by difficulty"
-              >
-                {DIFFICULTIES.map((diff) => (
-                  <option key={diff} value={diff}>
-                    {diff === 'All' ? 'All Difficulties' : diff}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Filter Dropdowns / Pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {/* Category Select */}
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="btn btn-secondary-glass btn-sm"
+              style={{ height: 38, padding: '0 12px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--t1)', background: 'var(--bg-surface)' }}
+            >
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c === 'All' ? 'All Categories' : c}
+                </option>
+              ))}
+            </select>
 
-            {/* Sorting Dropdown */}
-            <div className="tpl-control-item">
-              <select
-                className="tpl-select"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                id="select-sort-filter"
-                aria-label="Sort templates"
-              >
-                {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+            {/* Language Select */}
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              className="btn btn-secondary-glass btn-sm"
+              style={{ height: 38, padding: '0 12px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--t1)', background: 'var(--bg-surface)' }}
+            >
+              {languagesList.map((lang) => (
+                <option key={lang} value={lang}>
+                  {lang === 'All' ? 'All Stacks' : lang}
+                </option>
+              ))}
+            </select>
+
+            {/* Difficulty Pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(0,0,0,0.04)', padding: 3, borderRadius: 8 }}>
+              {['All', 'Beginner', 'Intermediate', 'Advanced'].map((diff) => (
+                <button
+                  key={diff}
+                  onClick={() => setSelectedDifficulty(diff)}
+                  className={`btn btn-sm ${selectedDifficulty === diff ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ height: 32, padding: '0 10px', fontSize: '0.74rem' }}
+                >
+                  {diff}
+                </button>
+              ))}
             </div>
 
             {/* View Mode Toggle */}
-            <div className="tpl-view-toggle">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderLeft: '1px solid var(--glass-border)', paddingLeft: 10 }}>
               <button
-                type="button"
-                className={`tpl-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
-                onClick={() => setViewMode('grid')}
-                title="Grid view"
-                id="btn-view-grid"
-                aria-label="Grid layout"
+                onClick={() => setViewMode('all')}
+                className={`btn btn-sm ${viewMode === 'all' ? 'btn-primary' : 'btn-secondary-glass'}`}
+                title="Grid View"
+                style={{ height: 32 }}
               >
-                <LayoutGrid size={15} />
+                <LayoutGrid size={14} />
+                <span>Grid</span>
               </button>
               <button
-                type="button"
-                className={`tpl-view-btn ${viewMode === 'list' ? 'active' : ''}`}
-                onClick={() => setViewMode('list')}
-                title="List view"
-                id="btn-view-list"
-                aria-label="List layout"
+                onClick={() => setViewMode('categorized')}
+                className={`btn btn-sm ${viewMode === 'categorized' ? 'btn-primary' : 'btn-secondary-glass'}`}
+                title="Categorized View"
+                style={{ height: 32 }}
               >
-                <List size={15} />
+                <Layers size={14} />
+                <span>Categories</span>
               </button>
             </div>
           </div>
         </div>
 
-        {/* Bottom Row: Language Filter Chips */}
-        <div className="tpl-lang-chips-row">
-          {LANGUAGES.map((lang) => {
-            const isSelected = selectedLang === lang;
-            const count = langCounts[lang] || 0;
+        {/* Counter & Active Filter Tags */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--glass-border-sub)' }}>
+          <span style={{ fontSize: '0.76rem', color: 'var(--t3)', fontFamily: 'var(--font-mono)' }}>
+            Showing <strong>{filteredBlueprints.length}</strong> of {blueprints.length} blueprints
+          </span>
+          {(searchQuery || selectedCategory !== 'All' || selectedDifficulty !== 'All' || selectedLanguage !== 'All') && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedCategory('All');
+                setSelectedDifficulty('All');
+                setSelectedLanguage('All');
+              }}
+              className="btn btn-ghost btn-sm"
+              style={{ fontSize: '0.72rem', height: 26, padding: '0 8px', color: 'var(--brand)' }}
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Content View 1: Flat Grid ── */}
+      {viewMode === 'all' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
+          {filteredBlueprints.map((item) => {
+            const diffClass =
+              item.difficulty === 'Beginner'
+                ? 'badge-teal'
+                : item.difficulty === 'Intermediate'
+                ? 'badge-amber'
+                : 'badge-rose';
+
             return (
-              <button
-                key={lang}
-                type="button"
-                className={`tpl-lang-chip ${isSelected ? 'active' : ''}`}
-                onClick={() => handleLanguageChange(lang)}
-                id={`chip-lang-${lang.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
-              >
-                <span className="tpl-chip-label">{lang}</span>
-                <span className="tpl-chip-count">{count}</span>
-              </button>
+              <div key={item.key} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 20 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>
+                      {item.category}
+                    </span>
+                    <span className={`badge ${diffClass}`}>
+                      {item.difficulty}
+                    </span>
+                  </div>
+
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--t1)', margin: '0 0 8px 0', letterSpacing: '-0.01em' }}>
+                    {item.title}
+                  </h3>
+
+                  <p style={{ fontSize: '0.82rem', color: 'var(--t2)', lineHeight: 1.5, margin: '0 0 16px 0' }}>
+                    {item.description}
+                  </p>
+
+                  {/* Language Badges */}
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Available Stacks:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {(item.languages || []).map((lang) => (
+                        <span
+                          key={lang}
+                          className="badge badge-teal"
+                          style={{ fontSize: '0.7rem', padding: '3px 8px', fontFamily: 'var(--font-mono)' }}
+                        >
+                          {lang}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Actions */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingTop: 14, borderTop: '1px solid var(--glass-border-sub)' }}>
+                  <button
+                    onClick={() => {
+                      setPreviewBlueprint(item);
+                      setPreviewModalOpen(true);
+                    }}
+                    className="btn btn-secondary-glass btn-sm"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    <Eye size={13} />
+                    <span>Preview</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenPracticeModal(item)}
+                    className="btn btn-primary btn-sm"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    <Play size={12} fill="currentColor" strokeWidth={0} />
+                    <span>Practice</span>
+                  </button>
+                </div>
+              </div>
             );
           })}
         </div>
-      </section>
+      )}
 
-      {/* ── Summary & Reset Banner ── */}
-      <div className="tpl-meta-banner">
-        <span className="tpl-results-count">
-          Showing <strong>{filteredTemplates.length}</strong>{' '}
-          {filteredTemplates.length === 1 ? 'template' : 'templates'}
-          {selectedCategory !== 'All Collections' && (
-            <span> in <em>{selectedCategory}</em></span>
-          )}
-          {selectedLang !== 'All' && <span> for <em>{selectedLang}</em></span>}
-          {selectedDiff !== 'All' && <span> ({selectedDiff})</span>}
-        </span>
+      {/* ── Content View 2: Organized by Category ── */}
+      {viewMode === 'categorized' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {Object.entries(categorizedBlueprints).map(([categoryName, items]) => (
+            <div key={categoryName} className="card" style={{ padding: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, paddingBottom: 12, borderBottom: '1px solid var(--glass-border-sub)' }}>
+                <Layers size={20} color="var(--brand)" />
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--t1)', margin: 0 }}>
+                  {categoryName}
+                </h2>
+                <span className="badge badge-teal" style={{ marginLeft: 'auto' }}>
+                  {items.length} drills
+                </span>
+              </div>
 
-        {hasActiveFilters && (
-          <button
-            type="button"
-            className="tpl-clear-filters-btn"
-            onClick={handleClearFilters}
-            id="btn-clear-all-filters"
-          >
-            <RotateCcw size={12} />
-            <span>Reset All Filters</span>
-          </button>
-        )}
-      </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                {items.map((item) => {
+                  const diffClass =
+                    item.difficulty === 'Beginner'
+                      ? 'badge-teal'
+                      : item.difficulty === 'Intermediate'
+                      ? 'badge-amber'
+                      : 'badge-rose';
 
-      {/* ── Templates Catalog: Grid or List View ── */}
-      <section className="tpl-content-area" aria-label="Template catalog">
-        {isLoading ? (
-          <div className={viewMode === 'grid' ? 'tpl-grid-layout' : 'tpl-list-layout'}>
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <TemplateSkeletonCard key={n} />
-            ))}
-          </div>
-        ) : filteredTemplates.length === 0 ? (
-          <div className="tpl-empty-card">
-            <div className="tpl-empty-icon-wrap">
-              <BookOpen size={24} strokeWidth={1.8} />
+                  return (
+                    <div
+                      key={item.key}
+                      style={{
+                        padding: 16,
+                        borderRadius: 12,
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--glass-border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                          <span className={`badge ${diffClass}`}>
+                            {item.difficulty}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--brand)', fontWeight: 700 }}>
+                            {item.languages?.length || 1} Stacks
+                          </span>
+                        </div>
+
+                        <h4 style={{ fontSize: '0.96rem', fontWeight: 800, color: 'var(--t1)', margin: '0 0 6px 0' }}>
+                          {item.title}
+                        </h4>
+
+                        <p style={{ fontSize: '0.78rem', color: 'var(--t2)', margin: '0 0 12px 0', lineHeight: 1.45 }}>
+                          {item.description}
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                        <button
+                          onClick={() => {
+                            setPreviewBlueprint(item);
+                            setPreviewModalOpen(true);
+                          }}
+                          className="btn btn-secondary-glass btn-sm"
+                          style={{ flex: 1, justifyContent: 'center', height: 30 }}
+                        >
+                          <Eye size={12} />
+                          <span>Preview</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenPracticeModal(item)}
+                          className="btn btn-primary btn-sm"
+                          style={{ flex: 1, justifyContent: 'center', height: 30 }}
+                        >
+                          <Play size={11} fill="currentColor" strokeWidth={0} />
+                          <span>Practice</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <h3 className="tpl-empty-title">No templates found</h3>
-            <p className="tpl-empty-desc">
-              We couldn't find any practice templates matching your filters or search keywords.
-            </p>
-            <div className="tpl-empty-actions">
+          ))}
+        </div>
+      )}
+
+      {/* ── Language Selection Modal ── */}
+      {selectedBlueprint && (
+        <div className="devtype-modal-backdrop">
+          <div className="devtype-modal-box" style={{ maxWidth: 480 }}>
+            <div className="devtype-modal-header">
+              <div>
+                <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', color: 'var(--brand)', fontWeight: 700 }}>
+                  Select Practice Language
+                </span>
+                <h3 className="devtype-modal-title" style={{ marginTop: 2, fontSize: '1.15rem' }}>
+                  {selectedBlueprint.title}
+                </h3>
+              </div>
               <button
-                type="button"
-                className="tpl-btn-reset-empty"
-                onClick={handleClearFilters}
+                onClick={() => setSelectedBlueprint(null)}
+                className="icon-btn"
+                style={{ width: 28, height: 28 }}
+                aria-label="Close"
               >
-                Clear Filters
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="devtype-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 700, display: 'block', marginBottom: 8 }}>
+                  Choose Your Target Stack:
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                  {(selectedBlueprint.languages || []).map((lang) => (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() => setChosenLang(lang)}
+                      className={`btn ${chosenLang === lang ? 'btn-primary' : 'btn-secondary-glass'}`}
+                      style={{ justifyContent: 'space-between', padding: '10px 14px' }}
+                    >
+                      <span>{lang}</span>
+                      {chosenLang === lang && <CheckCircle2 size={16} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Language Lock Warning */}
+              <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(217, 119, 6, 0.10)', border: '1px solid rgba(217, 119, 6, 0.25)', display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', color: '#D97706', lineHeight: 1.45 }}>
+                <Lock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <strong style={{ display: 'block', fontWeight: 700 }}>Strict Language Focus</strong>
+                  Once practice begins, the drill will be locked in {chosenLang} to ensure continuous motor memory development.
+                </div>
+              </div>
+            </div>
+
+            <div className="devtype-modal-footer">
+              <button
+                onClick={() => setSelectedBlueprint(null)}
+                className="btn btn-ghost btn-sm"
+              >
+                Cancel
               </button>
               <button
-                type="button"
-                className="tpl-btn-new-empty"
-                onClick={() => setIsCreateModalOpen(true)}
+                onClick={handleStartPractice}
+                className="btn btn-primary btn-sm"
               >
-                <Plus size={14} />
-                <span>Create New Template</span>
+                <Play size={12} fill="currentColor" strokeWidth={0} />
+                <span>Begin Practice in {chosenLang}</span>
               </button>
             </div>
           </div>
-        ) : (
-          <div className={viewMode === 'grid' ? 'tpl-grid-layout' : 'tpl-list-layout'}>
-            {filteredTemplates.map((template) => (
-              <TemplateCard
-                key={template.id}
-                template={template}
-                onSelect={setActiveModalSnippet}
-                onPractice={handleStartPractice}
-                isListView={viewMode === 'list'}
-              />
-            ))}
+        </div>
+      )}
+
+      {/* ── Code Preview Modal ── */}
+      {previewModalOpen && previewBlueprint && (
+        <div className="devtype-modal-backdrop">
+          <div className="devtype-modal-box" style={{ maxWidth: 640 }}>
+            <div className="devtype-modal-header">
+              <div>
+                <span className="badge badge-teal" style={{ marginBottom: 4 }}>
+                  {previewBlueprint.category} &bull; {previewBlueprint.difficulty}
+                </span>
+                <h3 className="devtype-modal-title" style={{ fontSize: '1.2rem' }}>
+                  {previewBlueprint.title}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPreviewModalOpen(false)}
+                className="icon-btn"
+                style={{ width: 28, height: 28 }}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="devtype-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p style={{ fontSize: '0.84rem', color: 'var(--t2)', margin: 0, lineHeight: 1.5 }}>
+                {previewBlueprint.description}
+              </p>
+
+              {/* Code preview block */}
+              <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--glass-border)', background: 'var(--code-bg, #0F172A)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#94A3B8' }}>
+                    Reference Blueprint Implementation
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#38BDF8', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    {previewBlueprint.languages?.[0] || 'Code'}
+                  </span>
+                </div>
+                <pre style={{ margin: 0, padding: 16, fontFamily: 'var(--font-mono)', fontSize: '0.84rem', color: '#F8FAFC', overflowX: 'auto', lineHeight: 1.55 }}>
+                  {Object.values(previewBlueprint.codeByLanguage || {})[0] || previewBlueprint.codeSnippet || previewBlueprint.code || '// No code preview available'}
+                </pre>
+              </div>
+            </div>
+
+            <div className="devtype-modal-footer">
+              <button
+                onClick={() => setPreviewModalOpen(false)}
+                className="btn btn-ghost btn-sm"
+              >
+                Close Preview
+              </button>
+              <button
+                onClick={() => {
+                  setPreviewModalOpen(false);
+                  handleOpenPracticeModal(previewBlueprint);
+                }}
+                className="btn btn-primary btn-sm"
+              >
+                <Play size={12} fill="currentColor" strokeWidth={0} />
+                <span>Select Stack &amp; Practice</span>
+              </button>
+            </div>
           </div>
-        )}
-      </section>
-
-      {/* ── Detail Modal ── */}
-      <TemplateDetailModal
-        isOpen={!!activeModalSnippet}
-        template={activeModalSnippet}
-        onClose={() => setActiveModalSnippet(null)}
-        onPractice={handleStartPractice}
-      />
-
-      {/* ── Create New Template Modal ── */}
-      <CreateTemplateModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onCreated={handleTemplateCreated}
-      />
+        </div>
+      )}
     </div>
   );
 }

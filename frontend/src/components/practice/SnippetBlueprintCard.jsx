@@ -1,5 +1,5 @@
 // src/components/practice/SnippetBlueprintCard.jsx
-import { Code2, Sparkles, Target, Compass } from 'lucide-react';
+import { Code2, Sparkles, Target, Compass, Lock } from 'lucide-react';
 
 const DIFFICULTY_STYLES = {
   Beginner: { color: '#059669', bg: 'rgba(5, 150, 105, 0.1)', border: 'rgba(5, 150, 105, 0.2)' },
@@ -9,6 +9,7 @@ const DIFFICULTY_STYLES = {
 
 const LANG_COLORS = {
   'C++': '#2563EB',
+  C: '#2563EB',
   Python: '#4F46E5',
   JavaScript: '#D97706',
   TypeScript: '#0284C7',
@@ -22,9 +23,11 @@ export default function SnippetBlueprintCard({
   mode,
   onSelectMode,
   onBrowseTemplates,
+  isLanguageLocked = false,
 }) {
   const diffStyle = DIFFICULTY_STYLES[snippet?.difficulty] || DIFFICULTY_STYLES.Intermediate;
   const langColor = LANG_COLORS[snippet?.language] || '#2563EB';
+  const locked = isLanguageLocked || Boolean(snippet?.isLanguageLocked);
 
   return (
     <div className="snippet-blueprint-card">
@@ -37,7 +40,7 @@ export default function SnippetBlueprintCard({
         <button
           className="sbc-browse-btn"
           onClick={onBrowseTemplates}
-          title="Browse all templates and challenges"
+          title="Browse all templates"
           id="btn-browse-templates"
         >
           <Compass size={12} />
@@ -55,10 +58,20 @@ export default function SnippetBlueprintCard({
               color: langColor,
               background: `${langColor}14`,
               borderColor: `${langColor}30`,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
             }}
+            title={locked ? "Language selection is locked for this active drill" : ""}
           >
             <span className="lang-pip" style={{ background: langColor }} />
             {snippet?.language || 'Code'}
+            {locked && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 2, opacity: 0.85, fontSize: '0.68rem', fontWeight: 600 }}>
+                <Lock size={10} />
+                <span>Locked</span>
+              </span>
+            )}
           </span>
 
           <span

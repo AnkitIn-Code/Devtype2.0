@@ -50,7 +50,7 @@ function getDayActivity(year, monthIdx, dayNum) {
  * Build month calendar matrix:
  * weeks array where each week has 7 day objects (or null if outside month)
  */
-function buildMonthCalendar(year, monthIdx) {
+function buildMonthCalendar(year, monthIdx, activityMap) {
   const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
   const firstDay = new Date(year, monthIdx, 1);
   // getDay() gives 0 for Sun, 1 for Mon... Convert to Mon=0, Sun=6
@@ -66,8 +66,21 @@ function buildMonthCalendar(year, monthIdx) {
 
   // Populate days of month
   for (let day = 1; day <= daysInMonth; day++) {
-    const { level, sessions } = getDayActivity(year, monthIdx, day);
     const dateStr = `${year}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    let level = 0;
+    let sessions = 0;
+
+    if (activityMap) {
+      const act = activityMap[dateStr];
+      if (act) {
+        sessions = act.sessionCount || 0;
+        level = act.level ?? (sessions === 0 ? 0 : sessions <= 2 ? 1 : sessions <= 4 ? 2 : sessions <= 7 ? 3 : 4);
+      }
+    } else {
+      const demo = getDayActivity(year, monthIdx, day);
+      level = demo.level;
+      sessions = demo.sessions;
+    }
 
     currentWeek.push({
       dayNum: day,
@@ -111,15 +124,27 @@ function buildMonthCalendar(year, monthIdx) {
 export default function ActivityHeatmap({
   title = 'Practice Activity',
   subtitle = 'Daily keyboard activity and practice telemetry',
+  activityData = null,
 }) {
-  const CUR_YEAR = 2026;
+  const CUR_YEAR = new Date().getFullYear();
   const [year, setYear] = useState(CUR_YEAR);
   const [activeMonthFilter, setActiveMonthFilter] = useState('all'); // 'all' or 0..11
 
+  const activityMap = useMemo(() => {
+    if (!Array.isArray(activityData)) return null;
+    const map = {};
+    for (const item of activityData) {
+      if (item?.date) {
+        map[item.date] = item;
+      }
+    }
+    return map;
+  }, [activityData]);
+
   // Generate 12 distinct months
   const allMonthsData = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => buildMonthCalendar(year, i));
-  }, [year]);
+    return Array.from({ length: 12 }, (_, i) => buildMonthCalendar(year, i, activityMap));
+  }, [year, activityMap]);
 
   // Aggregate year totals
   const yearStats = useMemo(() => {

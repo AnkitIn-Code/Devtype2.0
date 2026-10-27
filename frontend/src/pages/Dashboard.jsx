@@ -1,126 +1,55 @@
 // src/pages/Dashboard.jsx
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Zap, Target, BookOpen, Flame, Play,
-  ChevronLeft, ChevronRight, Clock, Star,
-  BarChart2, ArrowRight, Code2, Cpu, TrendingUp,
-  Calendar, MoreHorizontal
+  Clock, Star, ArrowRight, Code2, Cpu, TrendingUp,
+  Calendar, MoreHorizontal, AlertCircle, RotateCcw,
+  Brain, Sparkles, Layers, Eye, CheckCircle2
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { dashboardService } from '../services/dashboardService';
+import { templateService } from '../services/templateService';
+import { srsService } from '../services/srsService';
 import ActivityHeatmap from '../components/common/ActivityHeatmap';
 
-/* ================================================================
-   SAMPLE DATA
-   ================================================================ */
-const STATS = {
-  wpm:      null,
-  accuracy: null,
-  sessions: 0,
-  streak:   0,
-};
-
-const PRACTICE = {
-  title:      'Current Practice',
-  language:   'C++',
+const DEFAULT_PRACTICE = {
+  title: 'Binary Search Algorithm',
+  language: 'C++',
   difficulty: 'Intermediate',
-  sub:        'Pick up where you left off or start a new session.',
-  code: [
-    { ln: 1, parts: [
-      { k: 't-kw', v: 'for' },
-      { k: 't-pu', v: ' (' },
-      { k: 't-ty', v: 'int' },
-      { k: 't-va', v: ' i' },
-      { k: 't-op', v: ' = ' },
-      { k: 't-nu', v: '0' },
-      { k: 't-pu', v: '; i' },
-      { k: 't-op', v: ' < ' },
-      { k: 't-va', v: 'n' },
-      { k: 't-pu', v: '; i' },
-      { k: 't-op', v: '++' },
-      { k: 't-pu', v: ') {' },
-    ]},
-    { ln: 2, parts: [
-      { k: '',     v: '    ' },
-      { k: 't-va', v: 'cout' },
-      { k: 't-op', v: ' << ' },
-      { k: 't-st', v: '"Keep practicing!"' },
-      { k: 't-pu', v: ';' },
-    ]},
-    { ln: 3, parts: [{ k: 't-pu', v: '}' }]},
-  ],
+  sub: 'Logarithmic O(log N) divide-and-conquer search pattern.',
+  rawCode: `int binarySearch(const vector<int>& nums, int target) {
+    int left = 0, right = nums.size() - 1;
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (nums[mid] == target) return mid;
+        if (nums[mid] < target) left = mid + 1;
+        else right = mid - 1;
+    }
+    return -1;
+}`,
 };
 
-const CHALLENGE = {
-  name:       'Least Recently Used (LRU) Cache',
-  language:   'C++',
-  difficulty: 'Intermediate',
-  xp:         50,
-  desc:       'Implement O(1) get and put operations using a hash map and doubly linked list.',
+const LANG_COLORS = {
+  'C++': '#2563EB',
+  cpp: '#2563EB',
+  c: '#0284C7',
+  Python: '#4F46E5',
+  python: '#4F46E5',
+  Java: '#0D9488',
+  java: '#0D9488',
+  JavaScript: '#EAB308',
+  javascript: '#EAB308',
+  TypeScript: '#0284C7',
+  typescript: '#0284C7',
+  Rust: '#EA580C',
+  rust: '#EA580C',
+  Go: '#0284C7',
+  go: '#0284C7',
 };
 
-const SESSIONS = []; // empty = show empty state
-
 /* ================================================================
-   HEATMAP DATA GENERATOR
-   ================================================================ */
-function makeHeatmapData(year) {
-  const today = new Date(2026, 9, 28);
-  const data  = {};
-
-  const hot = [
-    [10, 16], [18, 26], [38, 45],
-    [65, 74], [82, 91], [130, 140],
-    [184, 212], [215, 228], [244, 266], [274, 289],
-  ];
-
-  let cur = new Date(year, 0, 1);
-  let idx = 0;
-  while (cur.getFullYear() === year && cur <= today) {
-    const key  = cur.toISOString().slice(0, 10);
-    let   lvl  = 0;
-    for (const [s, e] of hot) {
-      if (idx >= s && idx <= e) {
-        const r = Math.random();
-        lvl = r < 0.12 ? 0 : r < 0.28 ? 1 : r < 0.50 ? 2 : r < 0.72 ? 3 : r < 0.88 ? 4 : 5;
-        break;
-      }
-    }
-    data[key] = lvl;
-    cur = new Date(cur.getTime() + 86400000);
-    idx++;
-  }
-  return data;
-}
-
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const DAY_LABELS = ['Mon','','Wed','','Fri','',''];
-const LANG_COLORS = { 'C++': '#2563EB', Python: '#4F46E5', Java: '#0D9488', JS: '#EAB308', Rust: '#EA580C', Go: '#0284C7' };
-
-function buildWeeks(year, data) {
-  const start = new Date(year, 0, 1);
-  const dayOfWeek = (start.getDay() + 6) % 7;
-  const cur = new Date(start.getTime() - dayOfWeek * 86400000);
-  const weeks = [];
-  let w = [];
-
-  while (true) {
-    const key = cur.toISOString().slice(0, 10);
-    const inYear = cur.getFullYear() === year;
-    w.push({ date: key, inYear, level: inYear ? (data[key] ?? 0) : -1 });
-
-    if (w.length === 7) {
-      weeks.push(w);
-      w = [];
-      if (cur.getFullYear() > year) break;
-    }
-    cur.setDate(cur.getDate() + 1);
-    if (cur.getFullYear() > year && w.length === 0) break;
-  }
-  return weeks;
-}
-
-/* ================================================================
-   LIQUID GLASS STAT CARD (Modern Apple Silicon Cupertino Style)
+   STAT CARD
    ================================================================ */
 function StatCard({ icon: Icon, tone, label, value, sub, rightIcon: RightIcon }) {
   return (
@@ -148,23 +77,19 @@ function StatCard({ icon: Icon, tone, label, value, sub, rightIcon: RightIcon })
   );
 }
 
-function CodeLine({ ln, parts }) {
-  return (
-    <div className="code-row">
-      <span className="code-ln">{ln}</span>
-      <span className="code-tokens">
-        {parts.map((p, i) => (
-          <span key={i} className={p.k}>{p.v}</span>
-        ))}
-      </span>
-    </div>
-  );
-}
-
 /* ================================================================
    PRACTICE CARD
    ================================================================ */
 function PracticeCard({ p, onStart }) {
+  const rawCode = p?.rawCode || p?.content || (typeof p?.code === 'string' ? p.code : '');
+  const displayLines = rawCode
+    ? rawCode
+        .split('\n')
+        .map((l) => l.trimEnd())
+        .filter((l) => l.trim().length > 0)
+        .slice(0, 5)
+    : [];
+
   return (
     <div className="card practice-card">
       <div className="practice-hd">
@@ -173,26 +98,40 @@ function PracticeCard({ p, onStart }) {
             <div className="practice-icon-box">
               <Cpu size={18} strokeWidth={2} />
             </div>
-            <h4>{p.title}</h4>
+            <h4>{p?.title || 'Current Practice'}</h4>
           </div>
-          <p>{p.sub}</p>
+          <p>{p?.sub || 'Continue your regular code typing drills.'}</p>
         </div>
         <div className="practice-meta">
           <span className="badge badge-teal">
             <Code2 size={13} />
-            {p.language}
+            {p?.language || 'C++'}
           </span>
-          <span className="badge badge-indigo">{p.difficulty}</span>
+          <span className="badge badge-indigo">{p?.difficulty || 'Intermediate'}</span>
         </div>
       </div>
 
       <div className="practice-body">
         <div className="code-block">
-          {p.code.map(line => <CodeLine key={line.ln} {...line} />)}
+          {displayLines.length > 0 ? (
+            displayLines.map((lineText, idx) => (
+              <div key={idx} className="code-row">
+                <span className="code-ln">{idx + 1}</span>
+                <span className="code-tokens" style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.86rem', color: 'var(--t1)' }}>
+                  {lineText}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="code-row">
+              <span className="code-ln">1</span>
+              <span className="code-tokens" style={{ color: 'var(--t2)' }}>// Ready to practice snippet</span>
+            </div>
+          )}
           <div className="code-status-row">
             <div className="status-dot" />
-            <span className="status-text">Ready to begin</span>
-            <span className="status-hint">Start typing to improve your speed and accuracy.</span>
+            <span className="status-text">{p?.statusHint || 'Ready to begin'}</span>
+            <span className="status-hint">{p?.statusSub || 'Start typing to improve your speed and accuracy.'}</span>
           </div>
         </div>
       </div>
@@ -200,11 +139,11 @@ function PracticeCard({ p, onStart }) {
       <div className="practice-actions">
         <div className="practice-status-chip">
           <span className="chip-dot" />
-          <span>Ready to practice</span>
+          <span>{p?.chipText || 'Next in Sequence'}</span>
         </div>
         <button className="btn btn-primary btn-sm" id="btn-start-typing" onClick={onStart}>
           <Play size={12} fill="currentColor" strokeWidth={0} />
-          <span>Start Typing</span>
+          <span>{p?.btnText || 'Start Practice'}</span>
         </button>
       </div>
     </div>
@@ -212,214 +151,85 @@ function PracticeCard({ p, onStart }) {
 }
 
 /* ================================================================
-   CHALLENGE CARD
+   PROGRESSION & ACCOLADES CARD
    ================================================================ */
-function ChallengeCard({ c, onStart, onAll }) {
-  return (
-    <div className="card challenge-card">
-      <div className="challenge-inner">
-        {/* Top row */}
-        <div className="challenge-top">
-          <div className="challenge-title-icon">
-            <div className="challenge-icon-box">
-              <Zap size={16} color="#fff" fill="#fff" strokeWidth={0} />
-            </div>
-            <span className="challenge-heading">
-              Today's Challenge
-            </span>
-          </div>
-          <div className="xp-pill">
-            <Star size={12} fill="currentColor" />
-            +{c.xp} XP
-          </div>
-        </div>
+function ProgressCard({
+  totalXp = 0,
+  level = 1,
+  nextLevelXp = 200,
+  levelProgressPercent = 0,
+  srsCardsCount = 0,
+  unlockedAchievementsCount = 0,
+  totalAchievementsCount = 15,
+  totalPracticeTimeSeconds = 0,
+  totalCharactersTyped = 0,
+}) {
+  const formatTime = (secs) => {
+    if (!secs || secs <= 0) return '0s';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = Math.round(secs % 60);
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
 
-        {/* Content row */}
-        <div className="challenge-middle">
-          <div className="challenge-details">
-            <div className="challenge-name">{c.name}</div>
-            <div className="challenge-badges">
-              <span className="badge badge-teal"><Code2 size={13} />{c.language}</span>
-              <span className="badge badge-indigo">{c.difficulty}</span>
-            </div>
-            <p className="challenge-desc">{c.desc}</p>
-          </div>
+  const xpRemaining = Math.max(0, nextLevelXp - totalXp);
 
-          {/* Modern Apple Silicon Royal Blue / Ice Code Symbol */}
-          <div className="challenge-code-preview" aria-hidden="true">
-            <svg width="26" height="20" viewBox="0 0 22 16" fill="none">
-              <path d="M6 1.5L1.5 8L6 14.5" stroke="#2563EB" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M16 1.5L20.5 8L16 14.5" stroke="#2563EB" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M13.5 0.5L8.5 15.5" stroke="#60A5FA" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      <div className="challenge-actions">
-        <button className="btn btn-primary btn-sm" id="btn-start-challenge" onClick={onStart}>
-          <Play size={12} fill="currentColor" strokeWidth={0} />
-          <span>Start Challenge</span>
-        </button>
-        <button className="btn btn-ghost btn-sm" id="btn-view-challenges" onClick={onAll}>
-          <span>View all challenges</span>
-          <ArrowRight size={13} strokeWidth={2.2} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   ACTIVITY HEATMAP
-   ================================================================ */
-function Heatmap() {
-  const CUR_YEAR = 2026;
-  const [year, setYear] = useState(CUR_YEAR);
-  const data  = makeHeatmapData(year);
-  const weeks = buildWeeks(year, data);
-  const nw    = weeks.length;
-  const colW  = 14;
-
-  return (
-    <div className="card heatmap-card">
-      <div className="card-hd">
-        <div className="card-hd-left">
-          <div className="card-title">
-            <BarChart2 size={18} color="var(--brand)" />
-            <span>Practice Activity</span>
-          </div>
-          <div className="card-sub">Your practice activity in {year}</div>
-        </div>
-        <div className="hm-nav">
-          <button
-            className="hm-nav-btn"
-            id="btn-heatmap-prev"
-            onClick={() => setYear(y => y - 1)}
-            disabled={year <= 2023}
-          >
-            <ChevronLeft size={15} strokeWidth={2.2} />
-          </button>
-          <span className="hm-year">{year}</span>
-          <button
-            className="hm-nav-btn"
-            id="btn-heatmap-next"
-            onClick={() => setYear(y => Math.min(y + 1, CUR_YEAR))}
-            disabled={year >= CUR_YEAR}
-          >
-            <ChevronRight size={15} strokeWidth={2.2} />
-          </button>
-        </div>
-      </div>
-
-      <div className="card-bd">
-        <div className="heatmap-scroll">
-          <div className="heatmap-inner">
-            {/* Month labels */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: `28px repeat(${nw}, ${colW}px)`,
-              gap: '0 0',
-              marginBottom: 5,
-            }}>
-              <div />
-              {weeks.map((_, wi) => {
-                const date = new Date(year, 0, 1 + wi * 7);
-                const isFirstWeek = date.getDate() <= 7;
-                return (
-                  <div key={wi} className="hm-month-lbl">
-                    {isFirstWeek ? MONTHS[date.getMonth()] : ''}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Grid */}
-            <div className="hm-body">
-              <div className="hm-days-col">
-                {DAY_LABELS.map((l, i) => (
-                  <div key={i} className="hm-day-lbl">{l}</div>
-                ))}
-              </div>
-              <div className="hm-weeks">
-                {weeks.map((w, wi) => (
-                  <div key={wi} className="hm-week">
-                    {w.map((d, di) => (
-                      <div
-                        key={di}
-                        className="hm-cell"
-                        data-l={d.inYear ? d.level : 0}
-                        title={d.inYear ? `${d.date}: Level ${d.level}` : ''}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Legend */}
-            <div className="hm-legend">
-              <span className="hm-legend-lbl">Less</span>
-              <div className="hm-legend-cells">
-                {[0, 1, 2, 3, 4, 5].map(l => (
-                  <div key={l} className="hm-cell" data-l={l} />
-                ))}
-              </div>
-              <span className="hm-legend-lbl">More</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ================================================================
-   PROGRESS CARD
-   ================================================================ */
-function ProgressCard() {
   return (
     <div className="card progress-card">
       <div className="card-hd">
         <div className="card-hd-left">
           <div className="card-title">
             <Target size={18} color="var(--brand)" />
-            <span>Usage &amp; Progress</span>
+            <span>Progression &amp; Accolades</span>
           </div>
-          <div className="card-sub">Your overall progress and experience</div>
+          <div className="card-sub">Authoritative server level, XP velocity, and retention</div>
         </div>
         <div className="level-pill">
-          Level 1
+          Level {level}
         </div>
       </div>
 
       <div className="card-bd">
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', fontWeight: 600 }}>
-          <span style={{ color: 'var(--t1)' }}>Current XP</span>
-          <span style={{ color: 'var(--t3)' }}>Your next level</span>
+          <span style={{ color: 'var(--t1)' }}>Level Progress</span>
+          <span style={{ color: 'var(--t3)' }}>{xpRemaining.toLocaleString()} XP to Level {level + 1}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
-          <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--t1)' }}>0 / 100 XP</span>
+          <span style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--t1)' }}>
+            {(totalXp || 0).toLocaleString()} <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--t3)' }}>/ {(nextLevelXp || 0).toLocaleString()} XP</span>
+          </span>
           <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <Star size={13} fill="currentColor" />
-            100 XP
+            {levelProgressPercent}% Completed
           </span>
         </div>
 
         <div className="prog-bar">
-          <div className="prog-bar-fill" style={{ width: '0%' }} />
+          <div className="prog-bar-fill" style={{ width: `${Math.min(100, Math.max(0, levelProgressPercent))}%` }} />
         </div>
 
-        <div className="prog-stats">
+        <div className="prog-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
           <div className="prog-stat">
             <div className="prog-stat-icon"><Clock size={16} strokeWidth={2} /></div>
-            <div className="prog-stat-val">0s</div>
-            <div className="prog-stat-lbl">Total Practice Time</div>
+            <div className="prog-stat-val">{formatTime(totalPracticeTimeSeconds)}</div>
+            <div className="prog-stat-lbl">Practice Time</div>
+          </div>
+          <div className="prog-stat">
+            <div className="prog-stat-icon"><Target size={16} strokeWidth={2} /></div>
+            <div className="prog-stat-val">{(totalCharactersTyped || 0).toLocaleString()}</div>
+            <div className="prog-stat-lbl">Characters</div>
+          </div>
+          <div className="prog-stat">
+            <div className="prog-stat-icon"><Brain size={16} strokeWidth={2} /></div>
+            <div className="prog-stat-val">{srsCardsCount}</div>
+            <div className="prog-stat-lbl">SRS Blueprints</div>
           </div>
           <div className="prog-stat">
             <div className="prog-stat-icon"><Star size={16} strokeWidth={2} /></div>
-            <div className="prog-stat-val">0</div>
-            <div className="prog-stat-lbl">XP Earned</div>
+            <div className="prog-stat-val">{unlockedAchievementsCount} / {totalAchievementsCount || 15}</div>
+            <div className="prog-stat-lbl">Achievements</div>
           </div>
         </div>
       </div>
@@ -430,7 +240,18 @@ function ProgressCard() {
 /* ================================================================
    RECENT SESSIONS
    ================================================================ */
-function RecentSessions({ sessions }) {
+function RecentSessions({ sessions = [], onViewAll }) {
+  const formatDate = (isoString) => {
+    if (!isoString) return '—';
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
   return (
     <div className="card sessions-card">
       <div className="card-hd">
@@ -439,10 +260,10 @@ function RecentSessions({ sessions }) {
             <Clock size={18} color="var(--t3)" />
             <span>Recent Sessions</span>
           </div>
-          <div className="card-sub">Your latest practice sessions</div>
+          <div className="card-sub">Your latest completed code typing drills</div>
         </div>
         {sessions.length > 0 && (
-          <button className="btn btn-ghost btn-sm" id="btn-sessions-all">
+          <button className="btn btn-ghost btn-sm" id="btn-sessions-all" onClick={onViewAll}>
             <span>View all</span>
             <ArrowRight size={13} strokeWidth={2.2} />
           </button>
@@ -463,23 +284,31 @@ function RecentSessions({ sessions }) {
         <>
           <div className="sessions-header">
             <div className="sessions-col-hd">Language</div>
-            <div className="sessions-col-hd">Challenge</div>
-            <div className="sessions-col-hd">WPM</div>
+            <div className="sessions-col-hd">Snippet / Blueprint</div>
+            <div className="sessions-col-hd">Speed</div>
             <div className="sessions-col-hd">Accuracy</div>
             <div className="sessions-col-hd">Date</div>
           </div>
-          {sessions.map((s, i) => (
-            <div key={i} className="session-row">
-              <div className="session-lang">
-                <div className="lang-dot" style={{ background: LANG_COLORS[s.language] ?? '#9ca3af' }} />
-                {s.language}
+          {sessions.map((s, i) => {
+            const lang = s.language || 'Code';
+            const title = s.templateTitle || s.title || s.templateSlug || 'Practice Session';
+            const wpmVal = s.netWpm != null ? Math.round(Number(s.netWpm)) : (s.wpm ?? '—');
+            const accVal = s.accuracyPercent != null ? Math.round(Number(s.accuracyPercent)) : (s.accuracy ?? '—');
+            const dateStr = formatDate(s.completedAt || s.date);
+
+            return (
+              <div key={s.id || i} className="session-row">
+                <div className="session-lang">
+                  <div className="lang-dot" style={{ background: LANG_COLORS[lang] ?? '#2563EB' }} />
+                  {lang}
+                </div>
+                <div className="session-title" title={title}>{title}</div>
+                <div className="session-wpm">{wpmVal} WPM</div>
+                <div className="session-acc">{accVal}%</div>
+                <div className="session-date">{dateStr}</div>
               </div>
-              <div className="session-title">{s.title}</div>
-              <div className="session-wpm">{s.wpm}</div>
-              <div className="session-acc">{s.accuracy}%</div>
-              <div className="session-date">{s.date}</div>
-            </div>
-          ))}
+            );
+          })}
         </>
       )}
     </div>
@@ -487,85 +316,426 @@ function RecentSessions({ sessions }) {
 }
 
 /* ================================================================
-   DASHBOARD PAGE
+   MAIN DASHBOARD COMPONENT
    ================================================================ */
-const CURRENT_HOUR = new Date().getHours();
-const GREETING = CURRENT_HOUR < 12 ? 'Good morning' : CURRENT_HOUR < 17 ? 'Good afternoon' : 'Good evening';
-const DATE_STR = 'Mon, Oct 28, 2026';
-
 export default function Dashboard() {
   const navigate = useNavigate();
-  const go = (p) => navigate(p);
+  const { user } = useAuth();
+  const [dashboardData, setDashboardData] = useState(null);
+  const [currentPractice, setCurrentPractice] = useState(null);
+  const [dueSrsCards, setDueSrsCards] = useState([]);
+  const [totalSrsCards, setTotalSrsCards] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    dashboardService
+      .getDashboardSummary()
+      .then((data) => {
+        setDashboardData(data);
+      })
+      .catch((err) => {
+        setError(err.message || 'Unable to connect to DevType server to retrieve dashboard stats.');
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    dashboardService
+      .getDashboardSummary()
+      .then((data) => {
+        if (isMounted) {
+          setDashboardData(data);
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setError(err.message || 'Unable to connect to DevType server to retrieve dashboard stats.');
+          setIsLoading(false);
+        }
+      });
+
+    // Load SRS recall cards
+    srsService
+      .getDueCards()
+      .then((due) => {
+        if (isMounted) setDueSrsCards(due || []);
+      })
+      .catch(() => {});
+
+    srsService
+      .getDeck()
+      .then((deck) => {
+        if (isMounted) setTotalSrsCards(deck?.length || 0);
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // ── Determine Current Practice: Resume where left off, or First Template for new user ──
+  useEffect(() => {
+    let isMounted = true;
+    templateService
+      .getTemplates({ size: 100, sort: 'id,asc' })
+      .then((res) => {
+        if (!isMounted) return;
+        const templates = res?.items || res?.content || [];
+        if (templates.length === 0) return;
+
+        const recent = dashboardData?.recentSessions || [];
+        let chosenTemplate = templates[0];
+        let isResume = false;
+
+        if (recent.length > 0) {
+          const last = recent[0];
+          const lastId = last.templateId;
+          const lastSlug = last.templateSlug;
+          const lastTitle = last.templateTitle;
+
+          const idx = templates.findIndex(
+            (t) =>
+              (lastId && (t.numericId === lastId || t.id === lastId || String(t.id) === String(lastId))) ||
+              (lastSlug && t.slug === lastSlug) ||
+              (lastTitle && t.title === lastTitle)
+          );
+
+          if (idx >= 0 && idx + 1 < templates.length) {
+            chosenTemplate = templates[idx + 1];
+            isResume = true;
+          } else if (idx >= 0) {
+            chosenTemplate = templates[idx];
+            isResume = true;
+          }
+        }
+
+        setCurrentPractice({
+          template: chosenTemplate,
+          title: isResume ? `Next: ${chosenTemplate.title}` : `Current Practice: ${chosenTemplate.title}`,
+          language: chosenTemplate.language || 'Code',
+          difficulty: chosenTemplate.difficulty || 'Intermediate',
+          sub: isResume
+            ? 'Pick up where you left off. Next template in your sequence.'
+            : 'Start with your first practice template to build typing speed.',
+          rawCode: chosenTemplate.code || chosenTemplate.content || '',
+          chipText: isResume ? 'Next in Sequence' : 'First Lesson',
+          btnText: isResume ? 'Resume Practice' : 'Start Typing',
+          statusHint: isResume ? 'Ready to continue' : 'Welcome to DevType',
+          statusSub: isResume
+            ? `Continue your practice streak with ${chosenTemplate.language}`
+            : 'Start typing to begin your interactive code sprint.',
+        });
+      })
+      .catch((err) => {
+        console.warn('Could not load current practice template:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [dashboardData]);
+
+  const currentHour = new Date().getHours();
+  const greeting = currentHour < 12 ? 'Good morning' : currentHour < 17 ? 'Good afternoon' : 'Good evening';
+  const displayName = user?.displayName || user?.username || 'Developer';
+
+  const todayStr = new Date().toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const bestWpm = dashboardData?.bestWpm != null ? Math.round(Number(dashboardData.bestWpm)) : null;
+  const avgAccuracy = dashboardData?.averageAccuracy != null ? Math.round(Number(dashboardData.averageAccuracy)) : null;
+  const completedSessions = dashboardData?.totalCompletedSessions ?? 0;
+  const currentStreak = dashboardData?.currentStreak ?? 0;
+  const bestStreak = dashboardData?.bestStreak ?? 0;
+  const totalPracticeTimeSeconds = dashboardData?.totalPracticeTimeSeconds ?? 0;
+  const totalCharactersTyped = dashboardData?.totalCharactersTyped ?? 0;
+  const recentSessions = dashboardData?.recentSessions || [];
+  const dailyActivity = dashboardData?.dailyActivity || [];
+
+  // Decaying recall archetypes to display in the queue
+  const displayDueCards = useMemo(() => {
+    if (dueSrsCards.length >= 3) {
+      return dueSrsCards.slice(0, 3);
+    }
+    const sampleArchetypes = [
+      {
+        id: 'binary-search-cpp',
+        snippetId: 'binary-search-cpp',
+        title: 'Binary Search Algorithm',
+        language: 'cpp',
+        retention: 78,
+        desc: 'Logarithmic O(log N) divide-and-conquer search pattern.',
+        intervalDays: 1,
+        repetition: 0,
+      },
+      {
+        id: 'two-sum-cpp',
+        snippetId: 'two-sum-cpp',
+        title: 'Two Sum Map Resolution',
+        language: 'cpp',
+        retention: 84,
+        desc: 'One-pass hash table complement lookup in O(N) runtime.',
+        intervalDays: 6,
+        repetition: 1,
+      },
+      {
+        id: 'react-use-effect',
+        snippetId: 'react-use-effect',
+        title: 'React useEffect Hook',
+        language: 'javascript',
+        retention: 71,
+        desc: 'Lifecycle synchronization, cleanup handlers, and dependency arrays.',
+        intervalDays: 1,
+        repetition: 0,
+      },
+    ];
+
+    if (dueSrsCards.length === 0) return sampleArchetypes;
+    return [...dueSrsCards, ...sampleArchetypes].slice(0, 3);
+  }, [dueSrsCards]);
 
   return (
-    <div className="dash">
+    <div className="dash space-y-6">
       {/* ── Welcome Header ── */}
       <div className="dash-welcome">
         <div className="welcome-left">
-          <div className="welcome-sup">Welcome back.</div>
-          <h1 className="welcome-title">{GREETING}, Developer 👋</h1>
-          <p className="welcome-sub">Stay consistent. Small progress leads to big results.</p>
+          <div className="welcome-sup flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span>DevType Executive Telemetry // Kernel Synced</span>
+          </div>
+          <h1 className="welcome-title">{greeting}, {displayName} 👋</h1>
+          <p className="welcome-sub">
+            Your algorithmic muscle memory is active.{' '}
+            <span className="text-primary font-semibold">
+              {dueSrsCards.length > 0 ? `${dueSrsCards.length} Spaced Repetition cards` : 'SRS retention'}
+            </span>{' '}
+            are scheduled for synap-decay reinforcement today.
+          </p>
         </div>
 
-        {/* Modern Ice Glass Date & Streak Widget */}
+        {/* Ice Glass Date & Streak Widget */}
         <div className="welcome-widget">
           <div className="welcome-widget-top">
-            <span>{DATE_STR}</span>
+            <span>{todayStr}</span>
             <Calendar size={15} className="welcome-cal-icon" />
           </div>
           <div className="welcome-widget-sub">
             <Flame size={14} fill="currentColor" strokeWidth={0} />
-            <span>{STATS.streak > 0 ? `${STATS.streak} day streak` : '0 day streak'}</span>
+            <span>{currentStreak > 0 ? `${currentStreak} day streak` : '0 day streak'}</span>
           </div>
         </div>
       </div>
 
-      {/* ── Stat cards with Unified Modern Tones ── */}
+      {/* ── Error Banner with Retry ── */}
+      {error && (
+        <div
+          className="card"
+          style={{
+            padding: '16px 20px',
+            marginBottom: '20px',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <AlertCircle size={20} color="#EF4444" />
+            <div>
+              <div style={{ fontWeight: 600, color: '#EF4444', fontSize: '0.9rem' }}>
+                Failed to load live dashboard statistics
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--t3)' }}>{error}</div>
+            </div>
+          </div>
+          <button
+            className="btn btn-secondary-glass btn-sm"
+            onClick={handleRetry}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <RotateCcw size={13} />
+            <span>Retry</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Stat cards ── */}
       <div className="stat-grid">
         <StatCard
           icon={Zap}
           tone="rose"
           label="Best WPM"
-          value={STATS.wpm}
-          sub="All-time record"
+          value={isLoading ? '...' : (bestWpm != null ? `${bestWpm}` : '—')}
+          sub={bestWpm != null ? 'All-time personal record' : 'No records yet'}
         />
         <StatCard
           icon={Target}
           tone="emerald"
           label="Accuracy"
-          value={STATS.accuracy != null ? `${STATS.accuracy}%` : null}
-          sub="All-time average"
+          value={isLoading ? '...' : (avgAccuracy != null ? `${avgAccuracy}%` : '—')}
+          sub={avgAccuracy != null ? 'All-time precision average' : 'Awaiting first session'}
         />
         <StatCard
           icon={BookOpen}
           tone="cobalt"
           label="Practice Sessions"
-          value={STATS.sessions}
+          value={isLoading ? '...' : completedSessions}
           sub="Completed sessions"
         />
         <StatCard
-          icon={Flame}
+          icon={Brain}
           tone="amber"
-          label="Current Streak"
-          value={STATS.streak > 0 ? `${STATS.streak} days` : '0 days'}
-          sub="Best: 0 days"
+          label="SRS Due Cards"
+          value={isLoading ? '...' : (dueSrsCards.length)}
+          sub={dueSrsCards.length > 0 ? 'Requires reinforcement' : 'All caught up'}
         />
       </div>
 
-      {/* ── Practice + Challenge ── */}
+      {/* ── 1. Spaced Repetition (SRS) Action Spotlight Queue ── */}
+      <section className="srs-dashboard-section" aria-label="Spaced Repetition Recall Queue">
+        <div className="srs-dashboard-header">
+          <div className="srs-header-left">
+            <div className="srs-header-icon-box">
+              <Brain size={22} strokeWidth={2.2} />
+            </div>
+            <div className="srs-header-titles">
+              <div className="srs-header-title-row">
+                <h2 className="srs-header-title">
+                  Spaced Repetition Recall Queue
+                </h2>
+                <span className="srs-active-pill">
+                  SM-2 Active
+                </span>
+              </div>
+              <p className="srs-header-desc">
+                Review decaying syntax archetypes to maintain deterministic typing throughput.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => navigate('/revision')}
+            className="btn btn-primary btn-sm"
+            id="btn-srs-start-review"
+          >
+            <Sparkles size={14} />
+            <span>Start Full Review Session ({dueSrsCards.length || 3})</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+
+        {/* 3 Interactive Cards */}
+        <div className="srs-recall-grid">
+          {displayDueCards.map((card, idx) => {
+            const lang = (card.language || 'cpp').toUpperCase();
+            const retentionPct = card.retention || (idx === 0 ? 74 : idx === 1 ? 82 : 68);
+            const isDueNow = !card.dueDate || new Date(card.dueDate) <= new Date();
+            const retentionClass =
+              retentionPct >= 80 ? 'retention-good' : retentionPct >= 70 ? 'retention-warn' : 'retention-danger';
+
+            return (
+              <div
+                key={card.snippetId || card.id || idx}
+                className="srs-recall-card"
+              >
+                <div>
+                  <div className="srs-card-top">
+                    <span className="srs-lang-tag">
+                      {lang}
+                    </span>
+                    <span className={`srs-retention-badge ${retentionClass}`}>
+                      Retention {retentionPct}%
+                    </span>
+                  </div>
+
+                  <h3 className="srs-card-title">
+                    {card.title || card.snippetTitle || card.snippetId}
+                  </h3>
+
+                  <p className="srs-card-desc">
+                    {card.desc || 'Algorithmic logic review to reinforce syntactical muscle memory.'}
+                  </p>
+                </div>
+
+                <div className="srs-card-footer">
+                  <span className="srs-due-label">
+                    {isDueNow ? 'Due Today' : 'Scheduled'}
+                  </span>
+                  <div className="srs-card-actions">
+                    <button
+                      onClick={() => navigate(`/practice?snippet=${card.snippetId || card.id}&mode=cloze`)}
+                      className="btn-srs-cloze"
+                      title="Cloze masked recall drill"
+                    >
+                      Cloze
+                    </button>
+                    <button
+                      onClick={() => navigate(`/practice?snippet=${card.snippetId || card.id}&mode=copy`)}
+                      className="btn-srs-drill"
+                      title="Full syntax speed drill"
+                    >
+                      Drill
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── 2. Practice Activity & Current Practice Section ── */}
       <div className="two-col">
-        <PracticeCard p={PRACTICE} onStart={() => go('/practice?lang=C%2B%2B')} />
-        <ChallengeCard c={CHALLENGE} onStart={() => go('/practice?snippet=cpp-lru-cache')} onAll={() => go('/practice')} />
+        <PracticeCard
+          p={currentPractice || DEFAULT_PRACTICE}
+          onStart={() => {
+            if (currentPractice?.template) {
+              navigate(`/practice?snippet=${currentPractice.template.slug || currentPractice.template.id}`, {
+                state: { snippet: currentPractice.template },
+              });
+            } else {
+              navigate('/practice?snippet=binary-search-cpp');
+            }
+          }}
+        />
+
+        <ProgressCard
+          totalXp={dashboardData?.totalXp ?? (user?.totalXp || 0)}
+          level={dashboardData?.level ?? (user?.level || 1)}
+          nextLevelXp={dashboardData?.nextLevelXp ?? 200}
+          levelProgressPercent={dashboardData?.levelProgressPercent ?? 0}
+          srsCardsCount={totalSrsCards || dashboardData?.srsTotalCardsCount || 4}
+          unlockedAchievementsCount={dashboardData?.unlockedAchievementsCount ?? 0}
+          totalAchievementsCount={dashboardData?.totalAchievementsCount ?? 15}
+          totalPracticeTimeSeconds={totalPracticeTimeSeconds}
+          totalCharactersTyped={totalCharactersTyped}
+        />
       </div>
 
-      {/* ── Activity + Progress ── */}
-      <div className="two-col-wide">
-        <ActivityHeatmap />
-        <ProgressCard />
+      {/* ── 3. Activity Heatmap ── */}
+      <div className="card" style={{ padding: '24px' }}>
+        <ActivityHeatmap activityData={dailyActivity} />
       </div>
 
-      {/* ── Recent Sessions ── */}
-      <RecentSessions sessions={SESSIONS} />
+      {/* ── 4. Recent Sessions ── */}
+      <RecentSessions
+        sessions={recentSessions}
+        onViewAll={() => navigate('/reports')}
+      />
     </div>
   );
 }

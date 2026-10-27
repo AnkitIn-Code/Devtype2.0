@@ -1,11 +1,16 @@
 // src/pages/Practice.jsx
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { SNIPPETS } from '../data/snippets';
+import { AlertTriangle, RotateCcw, Compass, Loader2 } from 'lucide-react';
 import { tokenizeCodeSnippet } from '../utils/codeTokenizer';
 import { calculateTypingMetrics } from '../utils/typingMetrics';
 import { playKeyClickSound } from '../utils/typingSound';
-import { getTemplateById, getAllTemplates } from '../utils/templateStore';
+import { templateService, normalizeTemplate } from '../services/templateService';
+import { practiceService } from '../services/practiceService';
+import { srsService } from '../services/srsService';
+import { deriveQualityScore } from '../utils/srsEngine';
+import { useAuth } from '../context/AuthContext';
+import { saveUserSession } from '../utils/reportStore';
 
 import CodePracticeEditor from '../components/practice/CodePracticeEditor';
 import VirtualKeyboard from '../components/practice/VirtualKeyboard';
@@ -15,39 +20,47 @@ import PracticeResultsModal from '../components/practice/PracticeResultsModal';
 import ConfirmDialog from '../components/practice/ConfirmDialog';
 
 export default function Practice() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  // ── Active Snippet Selection (Initialized from location state or URL params) ──
+  const snippetParam = searchParams.get('snippet') || searchParams.get('drill') || searchParams.get('id') || searchParams.get('slug');
+  const langParam = searchParams.get('lang') || searchParams.get('language');
+  const srsCardIdParam = searchParams.get('srsCardId') || location.state?.srsCardId || location.state?.snippet?.srsCardId;
+  const isLanguageLocked = searchParams.get('lockLang') === 'true' || Boolean(location.state?.snippet?.isLanguageLocked);
+
+  // ── Active Snippet Selection (Initialized from location state or loaded from API) ──
   const [selectedSnippet, setSelectedSnippet] = useState(() => {
     if (location.state?.snippet) {
-      return location.state.snippet;
+      return normalizeTemplate(location.state.snippet);
     }
-    const snippetParam = searchParams.get('snippet');
-    if (snippetParam) {
-      const found = getTemplateById(snippetParam);
-      if (found) return found;
-    }
-    const langParam = searchParams.get('lang');
-    if (langParam) {
-      const all = getAllTemplates();
-      const matching = all.find(
-        (s) => s.language.toLowerCase() === langParam.toLowerCase()
-      );
-      if (matching) return matching;
-    }
-    return SNIPPETS[0];
+    return null;
   });
+
+  const [isLoadingSnippet, setIsLoadingSnippet] = useState(() => {
+    if (location.state?.snippet?.code || location.state?.snippet?.content) {
+      return false;
+    }
+    return true;
+  });
+
+  const [snippetError, setSnippetError] = useState(null);
+
+  // ── Server Session Tracking State ──
+  const activeSessionIdRef = useRef(null);
+  const activeSessionPromiseRef = useRef(null);
+  const isSubmittingRef = useRef(false);
+  const [serverMetrics, setServerMetrics] = useState(null);
 
   // Settings & Toggles
   const [mode, setMode] = useState('Free');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastPressedCode, setLastPressedCode] = useState(null);
 
-  // Tokenize the snippet
+  // Tokenize the snippet (safely handles null/empty snippet during loading)
   const tokenizedSnippet = useMemo(() => {
-    return tokenizeCodeSnippet(selectedSnippet.code, selectedSnippet.language);
+    return tokenizeCodeSnippet(selectedSnippet?.code || '', selectedSnippet?.language || 'javascript');
   }, [selectedSnippet]);
 
   // ── Session State ──
@@ -83,6 +96,8 @@ export default function Practice() {
     identifiers: 0,
     whitespace: 0,
   });
+  const [keyErrorMap, setKeyErrorMap] = useState({});
+  const [errorLocations, setErrorLocations] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef(null);
 
@@ -150,6 +165,14 @@ export default function Practice() {
 
   // ── Session Reset ──
   const resetSession = useCallback(() => {
+    if (activeSessionIdRef.current) {
+      practiceService.abandonSession(activeSessionIdRef.current);
+    }
+    activeSessionIdRef.current = null;
+    activeSessionPromiseRef.current = null;
+    isSubmittingRef.current = false;
+    setServerMetrics(null);
+
     setCursorIndex(0);
     setTypedHistory([]);
     setTotalKeystrokes(0);
@@ -158,6 +181,8 @@ export default function Practice() {
     setStreak(0);
     setPeakWpm(0);
     setSyntaxErrors({ brackets: 0, punctuation: 0, identifiers: 0, whitespace: 0 });
+    setKeyErrorMap({});
+    setErrorLocations([]);
     setIsTyping(false);
     startTimeRef.current = null;
     accumulatedMsRef.current = 0;
@@ -165,13 +190,93 @@ export default function Practice() {
     setResultsModalOpen(false);
   }, []);
 
-  // ── Clean Integration Boundary for Saving Results ──
+  // ── Fetch template or custom offline snippet ──
+  const fetchSnippet = useCallback(
+    async (targetId, preferredLang = null) => {
+      setIsLoadingSnippet(true);
+      setSnippetError(null);
+      try {
+        const langToUse = preferredLang || langParam;
+
+        // Custom template check if explicitly marked
+        if (targetId && String(targetId).startsWith('custom-')) {
+          const raw = localStorage.getItem('devtype_custom_templates');
+          if (raw) {
+            const list = JSON.parse(raw);
+            const found = list.find((s) => s.id === targetId || s.slug === targetId);
+            if (found) {
+              setSelectedSnippet(normalizeTemplate(found));
+              resetSession();
+              return;
+            }
+          }
+        }
+
+        // Fetch from template service with language awareness
+        const template = await templateService.getTemplateById(targetId, langToUse);
+        if (template && template.code) {
+          setSelectedSnippet(template);
+          resetSession();
+          return;
+        }
+
+        // Resilient fallback to predefined default
+        const defaultBlueprint = await templateService.getTemplateById('binary-search', langToUse || 'C++');
+        if (defaultBlueprint) {
+          setSelectedSnippet(defaultBlueprint);
+          resetSession();
+          return;
+        }
+
+        setSnippetError('The requested practice template could not be found.');
+      } catch (err) {
+        console.error('Failed to load practice content:', err);
+        const fallback = await templateService.getTemplateById(targetId || 'binary-search', langParam || 'C++');
+        if (fallback) {
+          setSelectedSnippet(fallback);
+          resetSession();
+        } else {
+          setSnippetError(err.message || 'Unable to load practice content.');
+        }
+      } finally {
+        setIsLoadingSnippet(false);
+      }
+    },
+    [langParam, resetSession]
+  );
+
+  useEffect(() => {
+    // If snippet already loaded with valid code matching target language, do not refetch
+    if (selectedSnippet && selectedSnippet.code) {
+      if (langParam) {
+        const currentLang = String(selectedSnippet.language || '').toLowerCase();
+        const requestedLang = String(langParam).toLowerCase();
+        const isCppMatch = (requestedLang === 'cpp' || requestedLang === 'c++') && (currentLang === 'c++' || currentLang === 'cpp');
+        if (isCppMatch || currentLang === requestedLang) {
+          return;
+        }
+      } else if (!snippetParam || snippetParam === selectedSnippet.slug || snippetParam === String(selectedSnippet.id)) {
+        return;
+      }
+    }
+
+    const timer = setTimeout(() => {
+      fetchSnippet(snippetParam, langParam);
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [snippetParam, langParam, selectedSnippet, fetchSnippet]);
+
+  // ── Clean Integration Boundary for Saving Results (Lightweight summary only) ──
   const saveSessionResults = useCallback(
     (finalMetrics) => {
+      if (!selectedSnippet) return;
       const sessionResult = {
         id: `sess_${Date.now()}`,
-        snippetId: selectedSnippet.id,
+        userId: user?.id,
+        snippetId: selectedSnippet.id || selectedSnippet.slug,
         title: selectedSnippet.title,
+        snippetTitle: selectedSnippet.title,
         language: selectedSnippet.language,
         difficulty: selectedSnippet.difficulty,
         wpm: finalMetrics.netWpm,
@@ -180,17 +285,131 @@ export default function Practice() {
         errors: finalMetrics.errorCount,
         durationSeconds: finalMetrics.elapsedSeconds,
         date: new Date().toISOString(),
+        isSrsReview: Boolean(srsCardIdParam),
       };
 
+      saveUserSession(sessionResult, user?.id);
+    },
+    [selectedSnippet, user]
+  );
+
+  // ── Initialize server practice session on typing begin ──
+  const startServerSession = useCallback(() => {
+    if (!selectedSnippet || activeSessionIdRef.current || activeSessionPromiseRef.current) {
+      return;
+    }
+    const tId = selectedSnippet.numericId || selectedSnippet.id;
+    const isNumericId = tId != null && !isNaN(Number(tId));
+    const isCustomOrAi = !isNumericId || selectedSnippet.isAiGenerated;
+
+    const startPayload = isCustomOrAi
+      ? {
+          customTitle: selectedSnippet.title,
+          customLanguage: selectedSnippet.language,
+          customDifficulty: selectedSnippet.difficulty,
+          customContent: selectedSnippet.code || selectedSnippet.content,
+        }
+      : {
+          templateId: Number(tId),
+          templateSlug: selectedSnippet.slug || String(tId),
+        };
+
+    activeSessionPromiseRef.current = practiceService
+      .startSession(startPayload)
+      .then((res) => {
+        if (res?.id) {
+          activeSessionIdRef.current = res.id;
+        }
+        return res;
+      })
+      .catch((err) => {
+        console.warn('Could not start server-side practice session:', err);
+        return null;
+      });
+  }, [selectedSnippet]);
+
+  // ── Submit session completion to server ──
+  const submitSessionCompletion = useCallback(
+    async (finalMetrics) => {
+      if (isSubmittingRef.current) return;
+      isSubmittingRef.current = true;
+
+      // 1. Save to local storage for instant availability
+      saveSessionResults(finalMetrics);
+
+      // 2. Submit to server if session was started
       try {
-        const existing = JSON.parse(localStorage.getItem('devtype_sessions') || '[]');
-        existing.unshift(sessionResult);
-        localStorage.setItem('devtype_sessions', JSON.stringify(existing.slice(0, 50)));
+        let sess = null;
+        if (activeSessionPromiseRef.current) {
+          sess = await activeSessionPromiseRef.current;
+        }
+        const sessionId = sess?.id || activeSessionIdRef.current;
+        let serverResult = null;
+
+        if (sessionId) {
+          serverResult = await practiceService.completeSession(sessionId, {
+            totalKeystrokes: finalMetrics.totalKeystrokes,
+            correctCharacters: finalMetrics.correctChars,
+            incorrectCharacters: finalMetrics.uncorrectedErrors,
+            errorCount: finalMetrics.errorCount,
+            elapsedMs: Math.round(finalMetrics.elapsedSeconds * 1000),
+          });
+        }
+
+        // If this session is for an SRS spaced repetition card review
+        if (srsCardIdParam) {
+          try {
+            const qualityScore = deriveQualityScore(
+              finalMetrics.accuracy,
+              finalMetrics.errorCount,
+              finalMetrics.netWpm
+            );
+            const reviewResult = await srsService.submitReview(srsCardIdParam, qualityScore);
+            if (reviewResult) {
+              setServerMetrics((prev) => ({
+                ...(prev || finalMetrics),
+                xpEarned: (prev?.xpEarned || 0) + (reviewResult.xpAward?.xpEarned || 30),
+                srsReviewed: true,
+                srsRepetition: reviewResult.repetition,
+                srsIntervalDays: reviewResult.intervalDays,
+              }));
+            }
+          } catch (srsErr) {
+            console.warn('Could not record SRS recall review:', srsErr);
+          }
+        }
+
+        if (serverResult) {
+          setServerMetrics({
+            ...finalMetrics,
+            grossWpm: Number(serverResult.grossWpm),
+            netWpm: Number(serverResult.netWpm),
+            accuracy: Math.round(Number(serverResult.accuracyPercent)),
+            errorCount: serverResult.errorCount,
+            elapsedSeconds: Math.round((serverResult.durationMs / 100) / 10) / 10,
+            isServerVerified: true,
+            xpEarned: serverResult.xpEarned,
+            totalXp: serverResult.totalXp,
+            currentLevel: serverResult.currentLevel,
+            nextLevelXp: serverResult.nextLevelXp,
+            levelProgressPercent: serverResult.levelProgressPercent,
+            newlyUnlockedAchievements: serverResult.newlyUnlockedAchievements || [],
+            keyErrorMap,
+            errorLocations,
+            code: selectedSnippet.code || selectedSnippet.content,
+            syntaxErrors,
+          });
+        }
+        activeSessionIdRef.current = null;
+        activeSessionPromiseRef.current = null;
       } catch (err) {
-        console.warn('Could not save session to localStorage:', err);
+        console.warn('Could not complete practice session on backend:', err);
+      } finally {
+        isSubmittingRef.current = false;
+        setResultsModalOpen(true);
       }
     },
-    [selectedSnippet]
+    [saveSessionResults, selectedSnippet, keyErrorMap, errorLocations, syntaxErrors]
   );
 
   // ── Physical Key Press Visual & Audio Feedback ──
@@ -217,6 +436,7 @@ export default function Practice() {
       if (sessionState === 'idle') {
         setSessionState('active');
         startTimeRef.current = Date.now();
+        startServerSession();
       }
 
       setIsTyping(true);
@@ -239,6 +459,31 @@ export default function Practice() {
         };
         const cat = classify(expectedChar);
         setSyntaxErrors((prev) => ({ ...prev, [cat]: prev[cat] + 1 }));
+
+        const charData = flatChars[cursorIndex];
+        setKeyErrorMap((prev) => {
+          const existing = prev[expectedChar] || { char: expectedChar, count: 0, typedMap: {} };
+          const nextTypedMap = { ...existing.typedMap, [key]: (existing.typedMap[key] || 0) + 1 };
+          return {
+            ...prev,
+            [expectedChar]: {
+              char: expectedChar,
+              count: existing.count + 1,
+              typedMap: nextTypedMap,
+            },
+          };
+        });
+
+        setErrorLocations((prev) => [
+          ...prev,
+          {
+            index: cursorIndex,
+            expected: expectedChar,
+            typed: key,
+            line: (charData?.lineIndex ?? 0) + 1,
+            col: (charData?.colIndex ?? 0) + 1,
+          },
+        ]);
       }
 
       // Track peak WPM inside event handler
@@ -292,8 +537,7 @@ export default function Practice() {
           currentCursorIndex: nextIndex,
         });
 
-        saveSessionResults(finalMetrics);
-        setResultsModalOpen(true);
+        submitSessionCompletion(finalMetrics);
       }
     },
     [
@@ -306,7 +550,8 @@ export default function Practice() {
       totalErrors,
       uncorrectedErrors,
       elapsedMs,
-      saveSessionResults,
+      startServerSession,
+      submitSessionCompletion,
     ]
   );
 
@@ -353,6 +598,7 @@ export default function Practice() {
       if (sessionState === 'idle') {
         setSessionState('active');
         startTimeRef.current = Date.now();
+        startServerSession();
       }
 
       setTotalKeystrokes((prev) => prev + strokes);
@@ -367,12 +613,48 @@ export default function Practice() {
 
       if (nextIdx >= flatChars.length) {
         setSessionState('completed');
-        setResultsModalOpen(true);
+        const finalSpan = startTimeRef.current
+          ? accumulatedMsRef.current + (Date.now() - startTimeRef.current)
+          : elapsedMs;
+        setElapsedMs(finalSpan);
+
+        const finalMetrics = calculateTypingMetrics({
+          totalKeystrokes: totalKeystrokes + strokes,
+          correctChars: correctChars + strokes,
+          totalErrors,
+          uncorrectedErrors,
+          elapsedMs: finalSpan,
+          totalSnippetChars: flatChars.length,
+          currentCursorIndex: nextIdx,
+        });
+
+        submitSessionCompletion(finalMetrics);
       }
     } else {
       handleKeyPress('\t');
     }
-  }, [sessionState, tokenizedSnippet.flatChars, cursorIndex, handleKeyPress]);
+  }, [
+    sessionState,
+    tokenizedSnippet.flatChars,
+    cursorIndex,
+    totalKeystrokes,
+    correctChars,
+    totalErrors,
+    uncorrectedErrors,
+    elapsedMs,
+    handleKeyPress,
+    startServerSession,
+    submitSessionCompletion,
+  ]);
+
+  // ── Session Unmount Abandonment Guard ──
+  useEffect(() => {
+    return () => {
+      if (activeSessionIdRef.current) {
+        practiceService.abandonSession(activeSessionIdRef.current);
+      }
+    };
+  }, []);
 
   // ── Global Pause/Resume Toggle via Esc ──
   const handlePauseResume = useCallback(() => {
@@ -394,19 +676,37 @@ export default function Practice() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [sessionState, handlePauseResume]);
 
-  // ── Next Snippet in SNIPPETS List ──
-  const handleNextSnippet = () => {
+  // ── Next Snippet in Catalog ──
+  const handleNextSnippet = useCallback(async () => {
     setResultsModalOpen(false);
-    const all = getAllTemplates();
-    const currentIndex = all.findIndex((s) => s.id === selectedSnippet.id);
-    const nextSnippet =
-      currentIndex >= 0 && currentIndex < all.length - 1
-        ? all[currentIndex + 1]
-        : all[0];
+    try {
+      const result = await templateService.getTemplates({ page: 0, size: 24, sort: 'createdAt,desc' });
+      const items = result?.items || [];
+      if (items.length > 0) {
+        const currentIndex = items.findIndex(
+          (s) => s.id === selectedSnippet?.id || s.slug === selectedSnippet?.slug
+        );
+        const nextMeta =
+          currentIndex >= 0 && currentIndex < items.length - 1
+            ? items[currentIndex + 1]
+            : items[0];
 
-    setSelectedSnippet(nextSnippet);
-    resetSession();
-  };
+        const nextFull = await templateService.getTemplateById(nextMeta.slug || nextMeta.id);
+        const resolved = nextFull || nextMeta;
+        setSelectedSnippet(resolved);
+        navigate(`/practice?snippet=${resolved.slug || resolved.id}`, {
+          replace: true,
+          state: { snippet: resolved },
+        });
+        resetSession();
+      } else {
+        navigate('/templates');
+      }
+    } catch (err) {
+      console.warn('Failed to cycle to next snippet:', err);
+      navigate('/templates');
+    }
+  }, [selectedSnippet, navigate, resetSession]);
 
   // ── Restart / Reset Handling ──
   const handleRestart = () => {
@@ -457,6 +757,100 @@ export default function Practice() {
 
   const currentTargetChar = tokenizedSnippet.flatChars[cursorIndex]?.char;
 
+  // Loading state when initial snippet is being fetched from backend
+  if (isLoadingSnippet && !selectedSnippet) {
+    return (
+      <div
+        className="practice-workspace-root"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '60vh',
+          padding: '40px 20px',
+        }}
+      >
+        <div className="tpl-empty-card" style={{ maxWidth: 460, textAlign: 'center', margin: '0 auto' }}>
+          <div
+            className="tpl-empty-icon-wrap"
+            style={{
+              animation: 'spin 1.2s linear infinite',
+              margin: '0 auto 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Loader2 size={32} />
+          </div>
+          <h3 className="tpl-empty-title">Loading Practice Template...</h3>
+          <p className="tpl-empty-desc">
+            Fetching verified source blueprint specifications from the DevType catalog.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state when snippet cannot be loaded, is unpublished, or backend is unreachable
+  if (snippetError && !selectedSnippet) {
+    return (
+      <div
+        className="practice-workspace-root"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '60vh',
+          padding: '40px 20px',
+        }}
+      >
+        <div
+          className="tpl-empty-card"
+          style={{
+            maxWidth: 480,
+            textAlign: 'center',
+            borderColor: 'rgba(239, 68, 68, 0.3)',
+            margin: '0 auto',
+          }}
+        >
+          <div
+            className="tpl-empty-icon-wrap"
+            style={{ color: 'var(--red)', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <AlertTriangle size={32} />
+          </div>
+          <h3 className="tpl-empty-title">Practice Template Unavailable</h3>
+          <p className="tpl-empty-desc">{snippetError}</p>
+          <div className="tpl-empty-actions" style={{ justifyContent: 'center', gap: 12, marginTop: 20 }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => fetchSnippet(snippetParam)}
+              id="btn-retry-practice-template"
+            >
+              <RotateCcw size={14} />
+              <span>Retry Request</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => navigate('/templates')}
+              id="btn-return-to-catalog"
+            >
+              <Compass size={14} />
+              <span>Browse Catalog</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!selectedSnippet) {
+    return null;
+  }
+
   return (
     <div className="practice-workspace-root">
       <div className="practice-layout-grid">
@@ -489,6 +883,7 @@ export default function Practice() {
             mode={mode}
             onSelectMode={setMode}
             onBrowseTemplates={() => navigate('/templates')}
+            isLanguageLocked={isLanguageLocked}
           />
 
           <PracticeTelemetryCard
@@ -508,8 +903,10 @@ export default function Practice() {
       {/* ── Polished Results Modal ── */}
       <PracticeResultsModal
         isOpen={resultsModalOpen}
-        metrics={metrics}
+        metrics={serverMetrics || metrics}
         snippet={selectedSnippet}
+        keyErrorMap={keyErrorMap}
+        errorLocations={errorLocations}
         onRetry={() => {
           setResultsModalOpen(false);
           resetSession();

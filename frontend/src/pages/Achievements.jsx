@@ -1,16 +1,18 @@
-// src/pages/Achievements.jsx
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Star, Trophy, Award, Medal, Crown, Zap, Target,
   Shield, Flame, Code2, Terminal, Cpu, Layers,
   Compass, GitBranch, FileCode, FileCode2, Globe,
   Users, Moon, Calendar, Settings, Play, Database,
-  Sparkles, CheckCircle2, Lock, X, ArrowRight, Search,
-  ChevronRight, Filter
+  Sparkles, CheckCircle2, Lock, X, Search
 } from 'lucide-react';
 
-import { getStoredAchievements, saveStoredAchievements } from '../data/achievementsData';
+import { useAuth } from '../context/AuthContext';
+import { achievementService } from '../services/achievementService';
+import { dashboardService } from '../services/dashboardService';
+import { INITIAL_ACHIEVEMENTS, getStoredAchievements, saveStoredAchievements } from '../data/achievementsData';
 
 /* Map icon strings to Lucide components */
 const ICON_MAP = {
@@ -42,23 +44,122 @@ const DIFFICULTY_THEMES = {
   },
 };
 
+const ACH_METADATA_MAP = INITIAL_ACHIEVEMENTS.reduce((acc, ach) => {
+  acc[ach.id] = {
+    difficulty: ach.difficulty,
+    tips: ach.tips,
+    rewardXp: ach.rewardXp,
+    category: ach.category,
+    icon: ach.icon,
+  };
+  return acc;
+}, {});
+
 export default function Achievements() {
   const navigate = useNavigate();
-  const [achievements, setAchievements] = useState(() => getStoredAchievements());
+  const { user } = useAuth();
+  const [achievements, setAchievements] = useState(() => getStoredAchievements(user?.id));
   const [filterDifficulty, setFilterDifficulty] = useState('All'); // 'All' | 'Easy' | 'Medium' | 'Hard' | 'Unlocked'
   const [searchQuery, setSearchQuery] = useState('');
   const [activeBadgeModal, setActiveBadgeModal] = useState(null);
 
+  // Sync with stored cache when user changes
+  useEffect(() => {
+    setAchievements(getStoredAchievements(user?.id));
+  }, [user?.id]);
+
+  // Fetch live accolades and verify against authentic telemetry
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAccolades() {
+      try {
+        const liveData = await achievementService.getAchievements();
+        if (isMounted && Array.isArray(liveData) && liveData.length > 0) {
+          const mapped = liveData.map((item) => {
+            const meta = ACH_METADATA_MAP[item.code] || {};
+            const difficulty = meta.difficulty || (item.threshold <= 10 ? 'Easy' : item.threshold <= 50 ? 'Medium' : 'Hard');
+            const tips = meta.tips || 'Keep practicing consistently to hit this milestone.';
+            const rewardXp = meta.rewardXp || item.rewardXp || 50;
+            const category = item.category || meta.category || 'Milestones';
+            const icon = item.icon || meta.icon || 'Trophy';
+
+            return {
+              id: item.code || item.id,
+              title: item.name || item.code,
+              difficulty,
+              category,
+              description: item.description,
+              progress: item.progress ?? 0,
+              maxProgress: item.threshold ?? item.maxProgress ?? 1,
+              unit: item.unit || 'Runs',
+              unlocked: Boolean(item.unlocked),
+              unlockedAt: item.unlockedAt,
+              rewardXp,
+              icon,
+              tips,
+            };
+          });
+
+          setAchievements(mapped);
+          saveStoredAchievements(mapped, user?.id);
+        } else if (isMounted) {
+          // If server returned empty, fallback to clean pristine definitions evaluated against dashboard summary
+          try {
+            const summary = await dashboardService.getDashboardSummary();
+            if (summary && isMounted) {
+              const bestWpm = Math.round(Number(summary.bestWpm) || 0);
+              const sessions = Number(summary.totalCompletedSessions) || 0;
+              const streak = Number(summary.currentStreak) || 0;
+              const chars = Number(summary.totalCharacters) || 0;
+              const avgAcc = Math.round(Number(summary.averageAccuracy) || 0);
+
+              const evaluated = INITIAL_ACHIEVEMENTS.map((ach) => {
+                let prog = 0;
+                if (ach.id.startsWith('speed-')) prog = bestWpm;
+                else if (ach.id.startsWith('tests-') || ach.id === 'first-session') prog = sessions;
+                else if (ach.id.startsWith('chars-')) prog = chars;
+                else if (ach.id.startsWith('accuracy-')) prog = avgAcc;
+                else if (ach.id.startsWith('streak-')) prog = streak;
+
+                const isUnlocked = prog >= ach.maxProgress && ach.maxProgress > 0;
+                return {
+                  ...ach,
+                  progress: isUnlocked ? ach.maxProgress : Math.min(ach.maxProgress, prog),
+                  unlocked: isUnlocked,
+                  unlockedAt: isUnlocked ? new Date().toISOString() : null,
+                };
+              });
+
+              setAchievements(evaluated);
+              saveStoredAchievements(evaluated, user?.id);
+            }
+          } catch (dashErr) {
+            console.debug('Dashboard summary unavailable for fallback:', dashErr);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load live achievements from server:', err);
+      }
+    }
+
+    loadAccolades();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id]);
+
   // Derived progress statistics
   const totalCount = achievements.length;
   const unlockedCount = useMemo(() => achievements.filter((a) => a.unlocked).length, [achievements]);
-  const progressPercent = Math.round((unlockedCount / totalCount) * 100);
+  const progressPercent = totalCount > 0 ? Math.round((unlockedCount / totalCount) * 100) : 0;
   const totalEarnedXp = useMemo(
-    () => achievements.filter((a) => a.unlocked).reduce((sum, a) => sum + a.rewardXp, 0),
+    () => achievements.filter((a) => a.unlocked).reduce((sum, a) => sum + (a.rewardXp || 0), 0),
     [achievements]
   );
   const totalPotentialXp = useMemo(
-    () => achievements.reduce((sum, a) => sum + a.rewardXp, 0),
+    () => achievements.reduce((sum, a) => sum + (a.rewardXp || 0), 0),
     [achievements]
   );
 
@@ -92,7 +193,7 @@ export default function Achievements() {
           <div className="welcome-sup">DEVELOPER ACCOLADES &amp; MILESTONES</div>
           <h1 className="welcome-title">Achievements</h1>
           <p className="welcome-sub">
-            Track milestones, unlock technical accolades, and earn XP rewards as your typing mastery expands.
+            Track milestones, unlock technical accolades, and earn XP rewards awarded directly on your real typing performance.
           </p>
         </div>
 
@@ -103,7 +204,7 @@ export default function Achievements() {
               <Star size={16} className="welcome-cal-icon" fill="currentColor" />
               <span>Accolade Rewards</span>
             </span>
-            <span className="you-pill">ACTIVE</span>
+            <span className="you-pill">{unlockedCount > 0 ? 'ACTIVE' : 'READY'}</span>
           </div>
 
           <div className="welcome-widget-sub">
@@ -143,8 +244,16 @@ export default function Achievements() {
                 {unlockedCount} of {totalCount} Badges Unlocked
               </h2>
               <p className="ach-overview-desc">
-                You have claimed <strong>{totalEarnedXp.toLocaleString()} XP</strong> from completed coding milestones.
-                Keep practicing daily to unlock remaining hard challenges.
+                {unlockedCount === 0 ? (
+                  <span>
+                    All badges start locked. Practice code snippets, boost your speed, and conquer daily challenges to earn genuine platform accolades!
+                  </span>
+                ) : (
+                  <span>
+                    You have claimed <strong>{totalEarnedXp.toLocaleString()} XP</strong> from completed coding milestones.
+                    Keep practicing daily to unlock remaining high-velocity accolades.
+                  </span>
+                )}
               </p>
 
               <div className="ach-overview-bar-wrap">
@@ -215,6 +324,7 @@ export default function Achievements() {
                 type="button"
                 className="ach-search-clear"
                 onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
               >
                 <X size={13} />
               </button>
@@ -352,128 +462,137 @@ export default function Achievements() {
 
       {/* ==============================================================
           5. BADGE DETAILS MODAL (REQUIREMENTS, PROGRESS, TIPS, REWARD)
+          Rendered via React Portal with 100% opaque backdrop & viewport centering
           ============================================================== */}
-      {activeBadgeModal && (() => {
-        const badge = activeBadgeModal;
-        const Icon = ICON_MAP[badge.icon] || Award;
-        const diffTheme = DIFFICULTY_THEMES[badge.difficulty] || DIFFICULTY_THEMES.Easy;
-        const pct = Math.min(100, Math.round((badge.progress / badge.maxProgress) * 100));
+      {activeBadgeModal && createPortal(
+        (() => {
+          const badge = activeBadgeModal;
+          const Icon = ICON_MAP[badge.icon] || Award;
+          const diffTheme = DIFFICULTY_THEMES[badge.difficulty] || DIFFICULTY_THEMES.Easy;
+          const pct = Math.min(100, Math.round((badge.progress / badge.maxProgress) * 100));
 
-        return (
-          <div className="modal-backdrop" onClick={() => setActiveBadgeModal(null)}>
-            <div
-              className="modal-box ach-details-modal"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-            >
-              {/* Close Button */}
-              <button
-                type="button"
-                className="modal-close-btn"
-                onClick={() => setActiveBadgeModal(null)}
-                aria-label="Close modal"
+          return (
+            <div className="modal-backdrop" onClick={() => setActiveBadgeModal(null)}>
+              <div
+                className="modal-box ach-details-modal"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                style={{
+                  background: 'var(--bg-surface, #121826)',
+                  border: '1px solid var(--glass-border, rgba(255, 255, 255, 0.12))',
+                  boxShadow: '0 24px 64px rgba(0, 0, 0, 0.65)',
+                }}
               >
-                <X size={18} />
-              </button>
-
-              <div className="ach-modal-content">
-                {/* Large Badge Icon */}
-                <div
-                  className="ach-modal-icon-circle"
-                  style={{
-                    background: badge.unlocked ? diffTheme.bg : 'var(--bg-hover)',
-                    borderColor: badge.unlocked ? diffTheme.border : 'var(--glass-border)',
-                    color: badge.unlocked ? diffTheme.color : 'var(--t2)',
-                  }}
+                {/* Close Button */}
+                <button
+                  type="button"
+                  className="modal-close-btn"
+                  onClick={() => setActiveBadgeModal(null)}
+                  aria-label="Close modal"
                 >
-                  <Icon size={36} strokeWidth={2} />
-                </div>
+                  <X size={18} />
+                </button>
 
-                <div className="ach-modal-tags">
-                  <span
-                    className="ach-diff-pill"
+                <div className="ach-modal-content">
+                  {/* Large Badge Icon */}
+                  <div
+                    className="ach-modal-icon-circle"
                     style={{
-                      color: diffTheme.color,
-                      background: diffTheme.bg,
-                      borderColor: diffTheme.border,
+                      background: badge.unlocked ? diffTheme.bg : 'var(--bg-hover)',
+                      borderColor: badge.unlocked ? diffTheme.border : 'var(--glass-border)',
+                      color: badge.unlocked ? diffTheme.color : 'var(--t2)',
                     }}
                   >
-                    {badge.difficulty}
-                  </span>
-                  <span className="badge badge-indigo">{badge.category}</span>
-                  <span className="ach-reward-xp" style={{ fontSize: '0.8rem' }}>
-                    <Star size={13} fill="currentColor" />
-                    +{badge.rewardXp} XP
-                  </span>
-                </div>
+                    <Icon size={36} strokeWidth={2} />
+                  </div>
 
-                <h2 className="ach-modal-title">{badge.title}</h2>
-                <p className="ach-modal-desc">{badge.description}</p>
-
-                {/* Progress Box */}
-                <div className="ach-modal-progress-card">
-                  <div className="modal-prog-header">
-                    <span className="prog-label">Progress</span>
-                    <span className="prog-val">
-                      {badge.progress} / {badge.maxProgress} {badge.unit} ({pct}%)
+                  <div className="ach-modal-tags">
+                    <span
+                      className="ach-diff-pill"
+                      style={{
+                        color: diffTheme.color,
+                        background: diffTheme.bg,
+                        borderColor: diffTheme.border,
+                      }}
+                    >
+                      {badge.difficulty}
+                    </span>
+                    <span className="badge badge-indigo">{badge.category}</span>
+                    <span className="ach-reward-xp" style={{ fontSize: '0.8rem' }}>
+                      <Star size={13} fill="currentColor" />
+                      +{badge.rewardXp} XP
                     </span>
                   </div>
-                  <div className="ach-card-bar" style={{ height: 8 }}>
-                    <div
-                      className="ach-card-fill"
-                      style={{
-                        width: `${pct}%`,
-                        background: badge.unlocked ? diffTheme.color : 'linear-gradient(90deg, #3B82F6, #6366F1)',
-                      }}
-                    />
-                  </div>
-                </div>
 
-                {/* Practical Tip */}
-                {badge.tips && (
-                  <div className="ach-modal-tip-box">
-                    <Sparkles size={16} className="tip-sparkle" />
-                    <div className="tip-text">
-                      <strong>Strategy Tip:</strong> {badge.tips}
+                  <h2 className="ach-modal-title">{badge.title}</h2>
+                  <p className="ach-modal-desc">{badge.description}</p>
+
+                  {/* Progress Box */}
+                  <div className="ach-modal-progress-card">
+                    <div className="modal-prog-header">
+                      <span className="prog-label">Real Performance Progress</span>
+                      <span className="prog-val">
+                        {badge.progress} / {badge.maxProgress} {badge.unit} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="ach-card-bar" style={{ height: 8 }}>
+                      <div
+                        className="ach-card-fill"
+                        style={{
+                          width: `${pct}%`,
+                          background: badge.unlocked ? diffTheme.color : 'linear-gradient(90deg, #3B82F6, #6366F1)',
+                        }}
+                      />
                     </div>
                   </div>
-                )}
 
-                {/* Timestamp info if unlocked */}
-                {badge.unlocked && badge.unlockedAt && (
-                  <div className="ach-modal-date-tag">
-                    <CheckCircle2 size={13} color="#10B981" />
-                    <span>Unlocked on {new Date(badge.unlockedAt).toLocaleDateString()}</span>
+                  {/* Strategy Tip */}
+                  {badge.tips && (
+                    <div className="ach-modal-tip-box">
+                      <Sparkles size={16} className="tip-sparkle" />
+                      <div className="tip-text">
+                        <strong>Strategy Tip:</strong> {badge.tips}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Timestamp info if unlocked */}
+                  {badge.unlocked && badge.unlockedAt && (
+                    <div className="ach-modal-date-tag">
+                      <CheckCircle2 size={13} color="#10B981" />
+                      <span>Unlocked on {new Date(badge.unlockedAt).toLocaleDateString()}</span>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="ach-modal-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setActiveBadgeModal(null)}
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setActiveBadgeModal(null);
+                        navigate('/practice');
+                      }}
+                    >
+                      <Play size={13} fill="currentColor" />
+                      <span>Practice Now</span>
+                    </button>
                   </div>
-                )}
-
-                {/* Actions */}
-                <div className="ach-modal-actions">
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => setActiveBadgeModal(null)}
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setActiveBadgeModal(null);
-                      navigate('/practice');
-                    }}
-                  >
-                    <Play size={13} fill="currentColor" />
-                    <span>Practice Now</span>
-                  </button>
                 </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })(),
+        document.body
+      )}
     </div>
   );
 }

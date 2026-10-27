@@ -1,10 +1,13 @@
 // src/pages/Reports.jsx
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { practiceService } from '../services/practiceService';
+import { useAuth } from '../context/AuthContext';
 import {
   Activity, Calendar, RotateCcw, Download,
   Zap, Target, Clock, TrendingUp,
-  Search, Play, Sparkles, Award
+  Search, Play, Sparkles, Award,
+  ChevronLeft, ChevronRight, CheckCircle2, ShieldCheck
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -161,18 +164,20 @@ function AnalyticsStatCard({ icon: Icon, tone, label, value, sub, tag }) {
 }
 
 /* ================================================================
-   EMPTY STATE COMPONENT
+   AUTHENTIC EMPTY STATE COMPONENT
    ================================================================ */
-function ReportsEmptyState({ onStartPractice, onResetDemo }) {
+function ReportsEmptyState({ username, onStartPractice, onResetDemo }) {
   return (
     <div className="reports-empty-card">
       <div className="reports-empty-icon-wrap">
         <Activity size={32} strokeWidth={1.8} />
       </div>
-      <h3 className="reports-empty-title">No Practice Sessions Recorded</h3>
+      <h3 className="reports-empty-title">
+        {username ? `No Practice Sessions Recorded for @${username}` : 'No Practice Sessions Recorded'}
+      </h3>
       <p className="reports-empty-desc">
         Complete typing drills in the Practice workspace to generate your personalized speed velocity curves,
-        character accuracy diagnostics, and language mastery benchmarks.
+        keystroke error heatmaps, and language mastery benchmarks.
       </p>
       <div className="reports-empty-actions">
         <button
@@ -191,7 +196,7 @@ function ReportsEmptyState({ onStartPractice, onResetDemo }) {
           id="btn-empty-load-demo"
         >
           <Sparkles size={13} />
-          <span>Load Benchmark Dataset</span>
+          <span>Preview Benchmark Sample</span>
         </button>
       </div>
     </div>
@@ -203,23 +208,99 @@ function ReportsEmptyState({ onStartPractice, onResetDemo }) {
    ================================================================ */
 export default function Reports() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // ── Dataset Selection State ──
-  // Check if real sessions exist in localStorage
-  const savedSessions = useMemo(() => getSavedSessions(), []);
-  const hasRealSessions = savedSessions.length > 0;
-
-  // If user has real sessions, default to real; otherwise default to demo
-  const [useDemoData, setUseDemoData] = useState(() => !hasRealSessions);
+  const [serverSessions, setServerSessions] = useState([]);
+  const [localSessions, setLocalSessions] = useState(() => getSavedSessions(user?.id));
+  const [useDemoData, setUseDemoData] = useState(false);
   const [selectedRange, setSelectedRange] = useState('30d');
   const [chartSeriesMode, setChartSeriesMode] = useState('both'); // 'both' | 'wpm' | 'acc'
   const [tableSearch, setTableSearch] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // ── Base Raw Sessions ──
+  // ── Pagination State ──
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Re-read local sessions whenever active user changes
+  useEffect(() => {
+    setLocalSessions(getSavedSessions(user?.id));
+  }, [user?.id]);
+
+  // Sync sessions from authenticated backend API
+  useEffect(() => {
+    let mounted = true;
+    practiceService
+      .getUserSessions({ page: 0, size: 100, sort: 'completedAt,desc' })
+      .then((res) => {
+        if (!mounted || !res?.items) return;
+        const normalized = res.items
+          .filter((s) => s.status === 'COMPLETED')
+          .map((s) => ({
+            id: s.id,
+            date: s.completedAt || s.startedAt,
+            snippetId: s.templateSlug || String(s.templateId),
+            snippetTitle: s.templateTitle || 'Practice Blueprint',
+            language: s.language || 'Code',
+            difficulty: s.difficulty || 'Intermediate',
+            code: s.sourceContent || '',
+            wpm: s.netWpm != null ? Math.round(Number(s.netWpm)) : 0,
+            grossWpm: s.grossWpm != null ? Math.round(Number(s.grossWpm)) : 0,
+            accuracy: s.accuracyPercent != null ? Math.round(Number(s.accuracyPercent)) : 100,
+            errors: s.errorCount || 0,
+            durationSeconds: Math.round((s.durationMs || 0) / 1000),
+            isServerVerified: true,
+          }));
+
+        if (normalized.length > 0) {
+          setServerSessions(normalized);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not sync user sessions from backend:', err);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
+  // ── Merge Server & Local Sessions (Prioritizing local enriched keystroke telemetry) ──
   const rawSessions = useMemo(() => {
-    return getSessions({ forceDemo: useDemoData });
-  }, [useDemoData]);
+    if (useDemoData) return getSessions({ forceDemo: true });
+
+    const local = localSessions || [];
+    const server = serverSessions || [];
+
+    // Map by id or date to deduplicate and preserve detailed local telemetry
+    const mergedMap = new Map();
+
+    server.forEach((s) => {
+      mergedMap.set(s.id, s);
+    });
+
+    local.forEach((s) => {
+      const existing = mergedMap.get(s.id);
+      if (existing) {
+        mergedMap.set(s.id, {
+          ...existing,
+          ...s,
+          keyErrorMap: s.keyErrorMap || existing.keyErrorMap,
+          errorLocations: s.errorLocations || existing.errorLocations,
+          code: s.code || existing.code,
+        });
+      } else {
+        mergedMap.set(s.id, s);
+      }
+    });
+
+    const list = Array.from(mergedMap.values());
+    list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return list;
+  }, [useDemoData, localSessions, serverSessions]);
+
+  const hasRealSessions = rawSessions.length > 0;
 
   // ── Filtered Sessions by Active Date Range ──
   const filteredSessions = useMemo(() => {
@@ -244,7 +325,7 @@ export default function Reports() {
     return computeDayDistribution(filteredSessions);
   }, [filteredSessions]);
 
-  // ── Table Filtered Sessions ──
+  // ── Table Search Filter ──
   const displayTableSessions = useMemo(() => {
     if (!tableSearch.trim()) return filteredSessions;
     const q = tableSearch.toLowerCase().trim();
@@ -256,16 +337,56 @@ export default function Reports() {
     });
   }, [filteredSessions, tableSearch]);
 
+  // Reset pagination to page 1 on filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tableSearch, selectedRange]);
+
+  // ── Pagination Computations ──
+  const totalSessions = displayTableSessions.length;
+  const totalPages = Math.max(1, Math.ceil(totalSessions / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedSessions = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return displayTableSessions.slice(start, start + pageSize);
+  }, [displayTableSessions, safeCurrentPage, pageSize]);
+
   // ── Actions ──
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 350);
-  }, []);
+    setLocalSessions(getSavedSessions(user?.id));
+    practiceService
+      .getUserSessions({ page: 0, size: 100, sort: 'completedAt,desc' })
+      .then((res) => {
+        if (res?.items) {
+          const normalized = res.items
+            .filter((s) => s.status === 'COMPLETED')
+            .map((s) => ({
+              id: s.id,
+              date: s.completedAt || s.startedAt,
+              snippetId: s.templateSlug || String(s.templateId),
+              snippetTitle: s.templateTitle || 'Practice Blueprint',
+              language: s.language || 'Code',
+              difficulty: s.difficulty || 'Intermediate',
+              code: s.sourceContent || '',
+              wpm: s.netWpm != null ? Math.round(Number(s.netWpm)) : 0,
+              grossWpm: s.grossWpm != null ? Math.round(Number(s.grossWpm)) : 0,
+              accuracy: s.accuracyPercent != null ? Math.round(Number(s.accuracyPercent)) : 100,
+              errors: s.errorCount || 0,
+              durationSeconds: Math.round((s.durationMs || 0) / 1000),
+              isServerVerified: true,
+            }));
+          setServerSessions(normalized);
+        }
+      })
+      .finally(() => {
+        setTimeout(() => setIsRefreshing(false), 350);
+      });
+  }, [user?.id]);
 
   const handleExportCsv = useCallback(() => {
-    const filename = `codetype-analytics-${selectedRange}-${Date.now()}.csv`;
+    const filename = `devtype-performance-${selectedRange}-${Date.now()}.csv`;
     exportSessionsToCsv(filteredSessions, filename);
   }, [filteredSessions, selectedRange]);
 
@@ -280,7 +401,7 @@ export default function Reports() {
     [navigate]
   );
 
-  // WPM Bounds for Chart Y-Axis
+  // WPM Bounds for Progression Chart
   const [wpmMin, wpmMax] = useMemo(() => {
     if (!progressionData.length) return [40, 80];
     const wpms = progressionData.map((d) => d.wpm);
@@ -299,16 +420,16 @@ export default function Reports() {
 
   return (
     <div className="reports-page-root">
-      {/* ── Page Header (Cupertino Humanized Form) ── */}
+      {/* ── Page Header (Cupertino Glass Aesthetic) ── */}
       <header className="tpl-header reports-header">
         <div className="tpl-header-left">
           <div className="tpl-header-badge">
             <Activity size={13} className="tpl-badge-icon" />
-            <span>Performance & Analytics</span>
+            <span>Performance & Diagnostics</span>
           </div>
-          <h1 className="tpl-title">Performance & Analytics</h1>
+          <h1 className="tpl-title">Performance Analytics</h1>
           <p className="tpl-subtitle">
-            Comprehensive typing velocity, precision metrics, and language proficiency over time.
+            Authentic velocity progression, keystroke error heatmaps, and language mastery metrics.
           </p>
         </div>
 
@@ -320,23 +441,23 @@ export default function Reports() {
               type="button"
               className={`reports-dataset-btn ${!useDemoData ? 'active' : ''}`}
               onClick={() => setUseDemoData(false)}
-              title="View your saved practice sessions"
+              title="View your authentic logged practice history"
               id="btn-source-my-data"
             >
-              <span>My History</span>
+              <span>{user?.username ? `@${user.username}` : 'My Profile'}</span>
               {hasRealSessions && (
-                <span className="reports-pill-count">{savedSessions.length}</span>
+                <span className="reports-pill-count">{rawSessions.length}</span>
               )}
             </button>
             <button
               type="button"
               className={`reports-dataset-btn ${useDemoData ? 'active' : ''}`}
               onClick={() => setUseDemoData(true)}
-              title="Deterministic reference dataset"
+              title="Preview sample benchmark dataset"
               id="btn-source-demo-data"
             >
               <Sparkles size={12} className="reports-spark-icon" />
-              <span>Demo Dataset</span>
+              <span>Sample Demo</span>
             </button>
           </div>
 
@@ -345,7 +466,7 @@ export default function Reports() {
             type="button"
             className={`tpl-hdr-btn tpl-hdr-secondary ${isRefreshing ? 'refreshing' : ''}`}
             onClick={handleRefresh}
-            title="Refresh calculated analytics"
+            title="Refresh calculated analytics from server"
             id="btn-refresh-analytics"
           >
             <RotateCcw size={14} className={isRefreshing ? 'spin-anim' : ''} />
@@ -391,13 +512,13 @@ export default function Reports() {
           {useDemoData ? (
             <div className="reports-status-indicator demo">
               <span className="status-ping" />
-              <span>Showing deterministic reference baseline (24 sessions)</span>
+              <span>Previewing sample benchmark dataset (24 demo sessions)</span>
             </div>
           ) : (
             <div className="reports-status-indicator live">
               <span className="status-ping live" />
               <span>
-                Live local storage ({filteredSessions.length} of {savedSessions.length} sessions in range)
+                Authentic profile history ({filteredSessions.length} of {rawSessions.length} sessions in range)
               </span>
             </div>
           )}
@@ -407,6 +528,7 @@ export default function Reports() {
       {/* ── Empty State Handling ── */}
       {isEmpty ? (
         <ReportsEmptyState
+          username={user?.username}
           onStartPractice={() => navigate('/templates')}
           onResetDemo={() => setUseDemoData(true)}
         />
@@ -456,7 +578,7 @@ export default function Reports() {
             />
           </div>
 
-          {/* ── Large WPM & Accuracy Progression Chart ── */}
+          {/* ── Velocity & Accuracy Progression Chart ── */}
           <div className="card reports-chart-card">
             <div className="card-hd reports-chart-hd">
               <div className="reports-chart-hd-left">
@@ -758,11 +880,11 @@ export default function Reports() {
             </div>
           </div>
 
-          {/* ── Recent Practice History Table ── */}
+          {/* ── Paginated Practice History Table ── */}
           <div className="card reports-table-card">
             <div className="card-hd reports-table-hd">
               <div className="reports-table-hd-left">
-                <h3 className="card-title">Recent Practice Sessions</h3>
+                <h3 className="card-title">Practice Session History</h3>
                 <span className="reports-table-count">
                   {displayTableSessions.length} sessions
                 </span>
@@ -793,11 +915,11 @@ export default function Reports() {
                     <th className="text-right">Net WPM</th>
                     <th className="text-right">Accuracy</th>
                     <th className="text-right">Duration</th>
-                    <th className="text-right">Action</th>
+                    <th className="text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayTableSessions.map((session, idx) => {
+                  {paginatedSessions.map((session, idx) => {
                     const d = new Date(session.date);
                     const dateFormatted = !isNaN(d.getTime())
                       ? d.toLocaleDateString('en-US', {
@@ -829,6 +951,15 @@ export default function Reports() {
                           <div className="cell-snippet-title">
                             {session.snippetTitle || session.title || 'Code Snippet'}
                           </div>
+                          {session.isServerVerified && (
+                            <span
+                              className="badge badge-emerald-light"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 4, fontSize: '0.65rem' }}
+                              title="Server verified"
+                            >
+                              <ShieldCheck size={10} strokeWidth={2.4} /> Verified
+                            </span>
+                          )}
                         </td>
                         <td className="cell-lang">
                           <span className="badge badge-teal">
@@ -867,10 +998,11 @@ export default function Reports() {
                         <td className="cell-action text-right">
                           <button
                             type="button"
-                            className="btn btn-secondary btn-xs btn-table-practice"
+                            className="btn btn-primary btn-xs btn-table-practice"
                             onClick={() => handleStartPractice(session)}
                             title="Practice this snippet again"
                             id={`btn-table-practice-${idx}`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
                           >
                             <Play size={11} fill="currentColor" strokeWidth={0} />
                             <span>Practice</span>
@@ -882,6 +1014,85 @@ export default function Reports() {
                 </tbody>
               </table>
             </div>
+
+            {/* ── Table Pagination Bar (Lazy and memory efficient) ── */}
+            {totalPages > 1 && (
+              <div className="reports-pagination-bar">
+                <div className="reports-pagination-info">
+                  <span>
+                    Showing <strong>{(safeCurrentPage - 1) * pageSize + 1}</strong> to{' '}
+                    <strong>{Math.min(safeCurrentPage * pageSize, totalSessions)}</strong> of{' '}
+                    <strong>{totalSessions}</strong> sessions
+                  </span>
+                  <div className="reports-page-size-select">
+                    <label htmlFor="select-page-size">Per page:</label>
+                    <select
+                      id="select-page-size"
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="reports-select-sm"
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="reports-pagination-controls">
+                  <button
+                    type="button"
+                    className="pagination-btn"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safeCurrentPage <= 1}
+                    title="Previous Page"
+                  >
+                    <ChevronLeft size={14} />
+                    <span>Prev</span>
+                  </button>
+
+                  <div className="pagination-pages-list">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((page) => {
+                        if (totalPages <= 7) return true;
+                        if (page === 1 || page === totalPages) return true;
+                        return Math.abs(page - safeCurrentPage) <= 1;
+                      })
+                      .map((page, idx, arr) => {
+                        const prevPage = arr[idx - 1];
+                        const hasGap = prevPage && page - prevPage > 1;
+
+                        return (
+                          <React.Fragment key={page}>
+                            {hasGap && <span className="pagination-ellipsis">...</span>}
+                            <button
+                              type="button"
+                              className={`pagination-page-btn ${page === safeCurrentPage ? 'active' : ''}`}
+                              onClick={() => setCurrentPage(page)}
+                            >
+                              {page}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="pagination-btn"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safeCurrentPage >= totalPages}
+                    title="Next Page"
+                  >
+                    <span>Next</span>
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -1,10 +1,11 @@
 // src/pages/Multiplayer.jsx
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Flag, Swords, Crown, Users, Ghost, ShieldAlert, Bug,
+  Flag, Swords, Users, Bug,
   Play, Plus, Search, Copy, Check, Trophy, ArrowRight,
-  Zap, Wifi, Radio, LogOut, ChevronLeft, ChevronRight,
-  AlertCircle, RefreshCw, Shield, Clock
+  Zap, Radio, LogOut, ChevronLeft, ChevronRight,
+  AlertCircle, RefreshCw, Shield, Clock, Key, Crown, Sparkles, TrendingUp
 } from 'lucide-react';
 
 import {
@@ -17,19 +18,13 @@ import { tokenizeCodeSnippet } from '../utils/codeTokenizer';
 import CodePracticeEditor from '../components/practice/CodePracticeEditor';
 import VirtualKeyboard from '../components/practice/VirtualKeyboard';
 import { LANGUAGES, DIFFICULTIES } from '../data/snippets';
-
-/* ================================================================
-   ICON MAPPING FOR 7 GAME MODES
-   ================================================================ */
-const MODE_ICONS = {
-  Flag,
-  Swords,
-  Crown,
-  Users,
-  Ghost,
-  ShieldAlert,
-  Bug,
-};
+import {
+  getUserEloData,
+  getTierForRating,
+  recordRankedMatch,
+  ELO_EVENT_NAME
+} from '../utils/eloRatingStore';
+import { useAuth } from '../context/AuthContext';
 
 const LANG_COLORS = {
   'C++': '#2563EB',
@@ -43,6 +38,9 @@ const LANG_COLORS = {
 };
 
 export default function Multiplayer() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
   // ── High-Level Arena View State ──
   // 'hub' | 'setup' | 'room' | 'countdown' | 'results'
   const [viewState, setViewState] = useState('hub');
@@ -55,12 +53,12 @@ export default function Multiplayer() {
   const [setupDiff, setSetupDiff] = useState('Intermediate');
   const [setupMaxPlayers, setSetupMaxPlayers] = useState(4);
   const [setupIsPrivate, setSetupIsPrivate] = useState(false);
-  const [setupIncludeBots, setSetupIncludeBots] = useState(true);
 
-  // ── Arena Hub State ──
-  const [selectedHubMode, setSelectedHubMode] = useState('classic');
-  const [lobbySearch, setLobbySearch] = useState('');
-  const [openRooms, setOpenRooms] = useState(() => multiplayerService.getOpenRooms());
+  // ── Private Room Quick Creation & Join State ──
+  const [privateLang, setPrivateLang] = useState('C++');
+  const [privateMaxPlayers, setPrivateMaxPlayers] = useState(4);
+  const [joinRoomInput, setJoinRoomInput] = useState('');
+  const [joinError, setJoinError] = useState(null);
 
   // ── Active Room State ──
   const [activeRoom, setActiveRoom] = useState(null);
@@ -69,9 +67,13 @@ export default function Multiplayer() {
   const [countdownNum, setCountdownNum] = useState(3);
   const [isCopiedCode, setIsCopiedCode] = useState(false);
 
-  // ── Live Race Typing Engine State (Matching Practice Section) ──
+  // ── ELO Rating State ──
+  const [userElo, setUserElo] = useState(() => getUserEloData());
+  const [lastEloResult, setLastEloResult] = useState(null);
+
+  // ── Live Race Typing Engine State ──
   const [cursorIndex, setCursorIndex] = useState(0);
-  const [typedHistory, setTypedHistory] = useState([]); // Array<{ typedChar: string; isCorrect: boolean }>
+  const [typedHistory, setTypedHistory] = useState([]);
   const [totalErrors, setTotalErrors] = useState(0);
   const [raceElapsedSeconds, setRaceElapsedSeconds] = useState(0);
   const [isFocused, setIsFocused] = useState(true);
@@ -82,6 +84,17 @@ export default function Multiplayer() {
   const raceIntervalRef = useRef(null);
   const botIntervalRef = useRef(null);
   const raceStartTimeRef = useRef(null);
+
+  // Synchronize ELO state
+  useEffect(() => {
+    const handleEloSync = () => setUserElo(getUserEloData());
+    window.addEventListener(ELO_EVENT_NAME, handleEloSync);
+    window.addEventListener('storage', handleEloSync);
+    return () => {
+      window.removeEventListener(ELO_EVENT_NAME, handleEloSync);
+      window.removeEventListener('storage', handleEloSync);
+    };
+  }, []);
 
   // Active Snippet for Race / Setup
   const currentSnippet = useMemo(() => {
@@ -98,37 +111,116 @@ export default function Multiplayer() {
     return tokenizeCodeSnippet(currentSnippet.code, currentSnippet.language);
   }, [currentSnippet]);
 
-  // Filtered Open Lobbies
-  const filteredOpenRooms = useMemo(() => {
-    if (!lobbySearch.trim()) return openRooms;
-    const q = lobbySearch.toLowerCase().trim();
-    return openRooms.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.code.toLowerCase().includes(q) ||
-        r.language.toLowerCase().includes(q) ||
-        r.modeName.toLowerCase().includes(q)
-    );
-  }, [openRooms, lobbySearch]);
-
-  // Mode Object for Setup
   const activeSetupMode = useMemo(() => {
     return MULTIPLAYER_MODES.find((m) => m.id === setupModeId) || MULTIPLAYER_MODES[0];
   }, [setupModeId]);
 
-  // ── Setup Navigation & Room Creation ──
+  // Launch a Ranked Match directly
+  const handleLaunchRanked = (modeId = 'classic') => {
+    const isDuel = modeId === 'duel';
+    const room = multiplayerService.createRoom({
+      name: isDuel ? '1v1 Ranked Battle' : 'Classic Ranked Sprint',
+      modeId,
+      language: 'C++',
+      difficulty: 'Intermediate',
+      maxPlayers: isDuel ? 2 : 4,
+      isPrivate: false,
+    });
+
+    setActiveRoom(room);
+    setIsUserReady(false);
+    setRoomSessionState('waiting');
+    setCursorIndex(0);
+    setTypedHistory([]);
+    setTotalErrors(0);
+    setRaceElapsedSeconds(0);
+    setLastEloResult(null);
+    setViewState('room');
+  };
+
+  // Launch Unranked Bug Fix Race
+  const handleLaunchBugFix = () => {
+    const room = multiplayerService.createRoom({
+      name: 'Bug Fix Code Sprint',
+      modeId: 'bug-fix',
+      language: 'TypeScript',
+      difficulty: 'Intermediate',
+      maxPlayers: 4,
+      isPrivate: false,
+    });
+
+    setActiveRoom(room);
+    setIsUserReady(false);
+    setRoomSessionState('waiting');
+    setCursorIndex(0);
+    setTypedHistory([]);
+    setTotalErrors(0);
+    setRaceElapsedSeconds(0);
+    setLastEloResult(null);
+    setViewState('room');
+  };
+
+  // Create Private Room
+  const handleCreatePrivateRoom = () => {
+    const displayName = user?.displayName || user?.username || 'Host';
+    const room = multiplayerService.createRoom({
+      name: `${displayName}'s Private Room`,
+      modeId: 'private-room',
+      language: privateLang,
+      difficulty: 'Intermediate',
+      maxPlayers: privateMaxPlayers,
+      isPrivate: true,
+    });
+
+    setActiveRoom(room);
+    setIsUserReady(false);
+    setRoomSessionState('waiting');
+    setCursorIndex(0);
+    setTypedHistory([]);
+    setTotalErrors(0);
+    setRaceElapsedSeconds(0);
+    setLastEloResult(null);
+    setViewState('room');
+  };
+
+  // Join Room with ID
+  const handleJoinWithId = (e) => {
+    e.preventDefault();
+    setJoinError(null);
+    const code = joinRoomInput.trim().toUpperCase();
+    if (!code) {
+      setJoinError('Please enter a room code (e.g. DEV-8412)');
+      return;
+    }
+
+    try {
+      const room = multiplayerService.joinRoom(code);
+      if (room) {
+        setActiveRoom(room);
+        setIsUserReady(false);
+        setRoomSessionState('waiting');
+        setCursorIndex(0);
+        setTypedHistory([]);
+        setTotalErrors(0);
+        setRaceElapsedSeconds(0);
+        setLastEloResult(null);
+        setViewState('room');
+      } else {
+        setJoinError('Room code not found. Please verify the ID.');
+      }
+    } catch {
+      setJoinError('Could not connect to room. Check code and try again.');
+    }
+  };
+
+  // Open Detailed Setup Dialog
   const handleOpenSetup = (modeId = 'classic') => {
     const mode = MULTIPLAYER_MODES.find((m) => m.id === modeId) || MULTIPLAYER_MODES[0];
     setSetupModeId(mode.id);
     setSetupRoomName(`Developer's ${mode.title}`);
     setSetupRoomCode(multiplayerService.generateRoomCode());
-
-    // Set sensible defaults for mode capacity
-    if (mode.id === 'duel') setSetupMaxPlayers(2);
-    else if (mode.id === 'battle-royale') setSetupMaxPlayers(16);
-    else if (mode.id === 'relay') setSetupMaxPlayers(4);
-    else setSetupMaxPlayers(4);
-
+    setSetupMaxPlayers(mode.id === 'duel' ? 2 : 4);
+    setSetupIsPrivate(mode.id === 'private-room');
     setViewState('setup');
   };
 
@@ -142,7 +234,6 @@ export default function Multiplayer() {
       isPrivate: setupIsPrivate,
     });
 
-    setOpenRooms(multiplayerService.getOpenRooms());
     setActiveRoom(created);
     setIsUserReady(false);
     setRoomSessionState('waiting');
@@ -150,27 +241,8 @@ export default function Multiplayer() {
     setTypedHistory([]);
     setTotalErrors(0);
     setRaceElapsedSeconds(0);
+    setLastEloResult(null);
     setViewState('room');
-  };
-
-  const handleJoinRoom = (room) => {
-    const joined = multiplayerService.joinRoom(room.id || room.code);
-    setActiveRoom(joined);
-    setIsUserReady(false);
-    setRoomSessionState('waiting');
-    setCursorIndex(0);
-    setTypedHistory([]);
-    setTotalErrors(0);
-    setRaceElapsedSeconds(0);
-    setViewState('room');
-  };
-
-  const handleQuickMatch = () => {
-    if (openRooms.length > 0) {
-      handleJoinRoom(openRooms[0]);
-    } else {
-      handleOpenSetup('classic');
-    }
   };
 
   const handleLeaveRoom = () => {
@@ -179,19 +251,35 @@ export default function Multiplayer() {
     setActiveRoom(null);
     setIsUserReady(false);
     setRoomSessionState('waiting');
+    setCursorIndex(0);
+    setTypedHistory([]);
+    setTotalErrors(0);
+    setRaceElapsedSeconds(0);
+    setLastEloResult(null);
     setViewState('hub');
   };
 
-  const handleCopyCode = (text) => {
-    navigator.clipboard.writeText(text);
+  const handleCopyCode = () => {
+    if (!activeRoom) return;
+    navigator.clipboard.writeText(activeRoom.code);
     setIsCopiedCode(true);
     setTimeout(() => setIsCopiedCode(false), 2000);
   };
 
-  // ── Launch Countdown & Race ──
-  const handleStartCountdown = useCallback(() => {
+  // ── Race Launch & Countdown Flow ──
+  const handleStartCountdown = () => {
     setViewState('countdown');
     setCountdownNum(3);
+
+    const racers = (activeRoom?.participants || []).map((p) => ({
+      ...p,
+      progress: 0,
+      wpm: 0,
+      finished: false,
+      finishTime: null,
+      charsTyped: 0,
+    }));
+    setRacerProgressList(racers);
 
     let count = 3;
     const timer = setInterval(() => {
@@ -200,36 +288,16 @@ export default function Multiplayer() {
         setCountdownNum(count);
       } else {
         clearInterval(timer);
-        // Activate Race
         setViewState('room');
         setRoomSessionState('active');
-        setCursorIndex(0);
-        setTypedHistory([]);
-        setTotalErrors(0);
-        setRaceElapsedSeconds(0);
-
-        // Initialize racers
-        const initialRacers = (activeRoom?.participants || []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          isHuman: p.isHuman,
-          targetWpm: p.targetWpm || (setupDiff === 'Advanced' ? 75 : setupDiff === 'Beginner' ? 50 : 64),
-          progress: 0,
-          wpm: 0,
-          finished: false,
-          finishTime: null,
-          charsTyped: 0,
-        }));
-        setRacerProgressList(initialRacers);
         raceStartTimeRef.current = Date.now();
       }
-    }, 900);
-  }, [activeRoom, setupDiff]);
+    }, 1000);
+  };
 
-  // ── Keystroke Handlers for CodePracticeEditor ──
-  const handlePhysicalKey = useCallback((code) => {
-    setLastPressedCode(code);
-    setTimeout(() => setLastPressedCode(null), 120);
+  // ── Typing Engine Keystroke Handlers ──
+  const handlePhysicalKey = useCallback((e) => {
+    setLastPressedCode(e.code);
   }, []);
 
   const handleKeyPress = useCallback((key) => {
@@ -238,8 +306,8 @@ export default function Multiplayer() {
     const flatChars = tokenizedSnippet.flatChars;
     if (cursorIndex >= flatChars.length) return;
 
-    const expectedChar = flatChars[cursorIndex].char;
-    const isCorrect = key === expectedChar;
+    const expected = flatChars[cursorIndex]?.char;
+    const isCorrect = key === expected;
 
     if (!isCorrect) {
       setTotalErrors((prev) => prev + 1);
@@ -272,11 +340,35 @@ export default function Multiplayer() {
     // Check completion
     if (nextIndex >= flatChars.length) {
       setRoomSessionState('completed');
+
+      // Check if ranked match
+      const isRanked = activeRoom?.modeId === 'classic' || activeRoom?.modeId === 'duel';
+      if (isRanked) {
+        // Calculate placement
+        const sorted = [...racerProgressList].sort((a, b) => (b.progress || 0) - (a.progress || 0));
+        const humanIndex = sorted.findIndex((r) => r.isHuman);
+        const rank = humanIndex >= 0 ? humanIndex + 1 : 1;
+        const isWin = activeRoom?.modeId === 'duel' ? rank === 1 : rank <= 2;
+        const opponent = sorted.find((r) => !r.isHuman) || { name: 'Ranked Competitor' };
+
+        const eloRes = recordRankedMatch({
+          isWin,
+          mode: activeRoom?.modeName || (activeRoom?.modeId === 'duel' ? '1v1 Battle' : 'Classic Race'),
+          opponentName: opponent.name,
+          opponentRating: 1220,
+          userWpm: liveWpm,
+          userAccuracy: 98.5,
+        });
+        setLastEloResult(eloRes);
+      } else {
+        setLastEloResult(null);
+      }
+
       setTimeout(() => {
         setViewState('results');
       }, 700);
     }
-  }, [roomSessionState, tokenizedSnippet, cursorIndex, raceElapsedSeconds]);
+  }, [roomSessionState, tokenizedSnippet, cursorIndex, raceElapsedSeconds, activeRoom, racerProgressList]);
 
   const handleBackspace = useCallback(() => {
     if (roomSessionState !== 'active' || cursorIndex <= 0) return;
@@ -360,203 +452,309 @@ export default function Multiplayer() {
   }, [sortedRacers]);
 
   const currentTargetChar = tokenizedSnippet.flatChars[cursorIndex]?.char;
+  const userTier = getTierForRating(userElo.rating);
 
   return (
-    <div className="multiplayer-page-root">
+    <div className="dash space-y-6">
+      {/* ── Top Navigation Switcher Between Arena & Leaderboard ── */}
+      <div className="multiplayer-nav-switcher card">
+        <div className="multiplayer-nav-tabs">
+          <button
+            type="button"
+            className="multiplayer-nav-tab is-active"
+            onClick={() => setViewState('hub')}
+          >
+            <Swords size={16} />
+            <span>Multiplayer Arena</span>
+          </button>
+          <button
+            type="button"
+            className="multiplayer-nav-tab"
+            onClick={() => navigate('/leaderboard')}
+          >
+            <Trophy size={16} />
+            <span>Multiplayer Rank Leaderboard</span>
+          </button>
+        </div>
+        <div className="multiplayer-nav-right">
+          <div className="mp-nav-elo-badge">
+            <span className="mp-nav-elo-label">YOUR RATING:</span>
+            <span className="mp-nav-elo-num" style={{ color: userTier.color }}>
+              {userElo.rating} ELO
+            </span>
+            <span
+              className="mp-nav-tier-tag"
+              style={{ color: userTier.color, backgroundColor: userTier.bg }}
+            >
+              {userTier.icon} {userTier.name}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* ============================================================
-          VIEW 1: ARENA HUB (7 Modes, Non-Distorted Lobbies, History)
+          VIEW 1: ARENA HUB (2 SECTIONS: RANKED & UNRANKED)
           ============================================================ */}
       {viewState === 'hub' && (
         <>
-          {/* Header */}
-          <header className="tpl-header mp-header">
-            <div className="tpl-header-left">
-              <div className="tpl-header-badge">
-                <Radio size={13} className="tpl-badge-icon" />
-                <span>Synchronous Code Arena</span>
+          {/* Welcome & Competitive Standing Widget */}
+          <div className="dash-welcome">
+            <div className="welcome-left">
+              <div className="welcome-tag">
+                <Radio size={13} />
+                <span>Live Synchronous Coding</span>
               </div>
-              <h1 className="tpl-title">Multiplayer Arena</h1>
-              <p className="tpl-subtitle">
-                Compete against developer benchmarks, race in team relays, and master synchronized syntax under pressure.
+              <h1>Multiplayer Arena</h1>
+              <p>
+                Test your algorithmic typing speed in competitive Ranked matches to earn ELO rating points, or sharpen your skills in Unranked bug races and private friend rooms.
               </p>
             </div>
 
-            <div className="tpl-header-actions mp-header-actions">
-              <button
-                type="button"
-                className="tpl-hdr-btn tpl-hdr-secondary"
-                onClick={handleQuickMatch}
-                id="btn-quick-match"
-              >
-                <Zap size={14} />
-                <span>Quick Match</span>
-              </button>
-              <button
-                type="button"
-                className="tpl-hdr-btn tpl-hdr-primary"
-                onClick={() => handleOpenSetup('classic')}
-                id="btn-create-room"
-              >
-                <Plus size={14} strokeWidth={2.2} />
-                <span>Host Custom Room</span>
-              </button>
-            </div>
-          </header>
-
-          {/* 7 Competitive Modes Grid */}
-          <section className="mp-modes-section">
-            <div className="mp-section-title-row">
-              <div>
-                <h3 className="mp-section-title">Select Competitive Mode</h3>
-                <p className="mp-section-sub">
-                  Choose from 7 distinct multiplayer formats designed for different competitive dynamics
-                </p>
+            <div className="welcome-widget">
+              <div className="widget-label">COMPETITIVE STANDING</div>
+              <div className="widget-val" style={{ color: userTier.color }}>
+                {userElo.rating} ELO
               </div>
-              <span className="mp-mode-count-badge">7 Game Modes</span>
+              <div className="widget-sub">
+                {userTier.icon} {userTier.name} · {userElo.wins}W - {userElo.losses}L (
+                {userElo.matchesPlayed > 0
+                  ? Math.round((userElo.wins / userElo.matchesPlayed) * 100)
+                  : 0}
+                % Win Rate)
+              </div>
             </div>
+          </div>
 
-            <div className="mp-modes-grid">
-              {MULTIPLAYER_MODES.map((mode) => {
-                const IconComponent = MODE_ICONS[mode.iconName] || Flag;
-                const isSelected = selectedHubMode === mode.id;
+          {/* ════════════════════════════════════════════════════════
+              SECTION 1: RANKED MULTIPLAYER (ELO RATING STAKES)
+              ════════════════════════════════════════════════════════ */}
+          <section className="mp-section">
+            <div className="mp-section-header-row">
+              <div className="mp-section-title-wrap">
+                <div className="mp-section-icon-badge is-ranked">
+                  <Trophy size={18} />
+                </div>
+                <div>
+                  <div className="mp-section-eyebrow">COMPETITIVE ELO STAKES</div>
+                  <h2 className="mp-section-heading">Ranked Arena</h2>
+                </div>
+              </div>
+              <span className="badge badge-amber mp-stakes-pill">
+                <Crown size={12} /> ELO Rating On The Line
+              </span>
+            </div>
+            <p className="mp-section-desc">
+              Heads-up competitive matches with strict ELO rating adjustments. Win to advance through tiers towards Grandmaster; loss will deduct rating points.
+            </p>
 
-                return (
-                  <div
-                    key={mode.id}
-                    className={`mp-mode-card ${isSelected ? 'selected' : ''}`}
-                    onClick={() => setSelectedHubMode(mode.id)}
-                  >
-                    <div className="mp-mode-top">
-                      <div className={`stat-icon-wrap ${mode.tone}`}>
-                        <IconComponent size={20} strokeWidth={2.2} />
-                      </div>
-                      <span className="mp-mode-badge">{mode.badge}</span>
-                    </div>
-
-                    <h4 className="mp-mode-title">{mode.title}</h4>
-                    <span className="mp-mode-tagline">{mode.tagline}</span>
-                    <p className="mp-mode-desc">{mode.description}</p>
-
-                    <div className="mp-mode-footer">
-                      <div className="mp-mode-capacity">
-                        <Users size={12} />
-                        <span>{mode.playerRange}</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-xs mp-select-mode-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenSetup(mode.id);
-                        }}
-                        id={`btn-select-mode-${mode.id}`}
-                      >
-                        <span>Select Mode</span>
-                        <ChevronRight size={12} />
-                      </button>
-                    </div>
+            <div className="mp-ranked-cards-grid">
+              {/* Game 1: Classic Race */}
+              <div className="card mp-game-mode-card is-ranked-card">
+                <div className="mp-mode-card-top">
+                  <div className="mp-mode-icon-wrap" style={{ background: 'rgba(37, 99, 235, 0.12)', color: '#2563EB' }}>
+                    <Flag size={22} />
                   </div>
-                );
-              })}
+                  <span className="badge badge-indigo">4-Player Sprint</span>
+                </div>
+                <h3 className="mp-mode-title">Classic Race</h3>
+                <p className="mp-mode-desc">
+                  Simultaneous 4-player algorithmic code typing race. Top 2 finishers gain ELO rating points; lower 2 lose points.
+                </p>
+                <div className="mp-mode-stakes-info">
+                  <span className="stakes-label">Stakes:</span>
+                  <span className="stakes-value">+20 to +32 ELO on Win</span>
+                </div>
+                <div className="mp-mode-footer">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm mp-mode-cta"
+                    onClick={() => handleLaunchRanked('classic')}
+                    id="btn-launch-classic-race"
+                  >
+                    <Play size={14} fill="currentColor" />
+                    <span>Enter Classic Queue</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Game 2: 1v1 Battle */}
+              <div className="card mp-game-mode-card is-ranked-card is-duel-highlight">
+                <div className="mp-mode-card-top">
+                  <div className="mp-mode-icon-wrap" style={{ background: 'rgba(225, 29, 72, 0.12)', color: '#E11D48' }}>
+                    <Swords size={22} />
+                  </div>
+                  <span className="badge badge-rose">High Stakes 1v1</span>
+                </div>
+                <h3 className="mp-mode-title">1v1 Battle</h3>
+                <p className="mp-mode-desc">
+                  High-stakes head-to-head duel. Out-type your rival in speed and precision to seize maximum ELO rating points.
+                </p>
+                <div className="mp-mode-stakes-info">
+                  <span className="stakes-label">Stakes:</span>
+                  <span className="stakes-value">Winner Takes All ELO</span>
+                </div>
+                <div className="mp-mode-footer">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm mp-mode-cta btn-rose-cta"
+                    onClick={() => handleLaunchRanked('duel')}
+                    id="btn-launch-1v1-battle"
+                  >
+                    <Swords size={14} />
+                    <span>Start 1v1 Battle</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 
-          {/* Dedicated Non-Distorted Open Waiting Lobbies Browser */}
-          <section className="mp-open-lobbies-section">
-            <div className="card mp-lobbies-card">
-              <div className="card-hd mp-lobbies-hd">
-                <div className="mp-lobbies-hd-left">
-                  <Wifi size={15} className="wifi-icon" />
-                  <h3 className="card-title">Open Waiting Lobbies</h3>
-                  <span className="mp-lobbies-count">
-                    {filteredOpenRooms.length} available
-                  </span>
+          {/* ════════════════════════════════════════════════════════
+              SECTION 2: UNRANKED & PRIVATE ROOMS (NO RATING IMPACT)
+              ════════════════════════════════════════════════════════ */}
+          <section className="mp-section">
+            <div className="mp-section-header-row">
+              <div className="mp-section-title-wrap">
+                <div className="mp-section-icon-badge is-unranked">
+                  <Users size={18} />
+                </div>
+                <div>
+                  <div className="mp-section-eyebrow">CASUAL & FRIEND ROOMS</div>
+                  <h2 className="mp-section-heading">Unranked Arena & Private Rooms</h2>
+                </div>
+              </div>
+              <span className="badge badge-teal mp-stakes-pill">
+                <Sparkles size={12} /> No Rating Impact
+              </span>
+            </div>
+            <p className="mp-section-desc">
+              Practice syntax precision, debug code errors, or race privately with friends without touching your competitive ELO rating.
+            </p>
+
+            <div className="mp-unranked-cards-grid">
+              {/* Game 1: Bug Fix Race */}
+              <div className="card mp-unranked-card">
+                <div className="mp-mode-card-top">
+                  <div className="mp-mode-icon-wrap" style={{ background: 'rgba(2, 132, 199, 0.12)', color: '#0284C7' }}>
+                    <Bug size={22} />
+                  </div>
+                  <span className="badge badge-teal">Debug Sprint</span>
+                </div>
+                <h3 className="mp-mode-title">Bug Fix Race</h3>
+                <p className="mp-mode-desc">
+                  Inspect intentional syntax bugs, logic errors, and anti-patterns, then type the correct patch under casual unranked conditions.
+                </p>
+                <div className="mp-mode-footer" style={{ marginTop: 'auto' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm mp-mode-cta"
+                    onClick={handleLaunchBugFix}
+                    id="btn-launch-bug-fix"
+                  >
+                    <Play size={13} />
+                    <span>Launch Bug Fix Race</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Private Room: Create Private Room */}
+              <div className="card mp-unranked-card mp-private-create-card">
+                <div className="mp-mode-card-top">
+                  <div className="mp-mode-icon-wrap" style={{ background: 'rgba(16, 185, 129, 0.12)', color: '#10B981' }}>
+                    <Plus size={22} />
+                  </div>
+                  <span className="badge badge-emerald">Host Friends</span>
+                </div>
+                <h3 className="mp-mode-title">Create Private Room</h3>
+                <p className="mp-mode-desc">
+                  Host an exclusive room for just racing with friends with a private Room ID code.
+                </p>
+
+                <div className="mp-private-form-grid">
+                  <div className="mp-form-field">
+                    <label>Language</label>
+                    <select
+                      className="mp-select"
+                      value={privateLang}
+                      onChange={(e) => setPrivateLang(e.target.value)}
+                    >
+                      {LANGUAGES.slice(0, 6).map((lang) => (
+                        <option key={lang} value={lang}>
+                          {lang}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mp-form-field">
+                    <label>Max Players</label>
+                    <select
+                      className="mp-select"
+                      value={privateMaxPlayers}
+                      onChange={(e) => setPrivateMaxPlayers(Number(e.target.value))}
+                    >
+                      <option value={2}>2 Racers</option>
+                      <option value={4}>4 Racers</option>
+                      <option value={8}>8 Racers</option>
+                    </select>
+                  </div>
                 </div>
 
-                {/* Lobby Search Input */}
-                <div className="mp-lobby-search-wrap">
-                  <Search size={13} className="mp-search-icon" />
+                <div className="mp-mode-footer" style={{ marginTop: 14 }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm mp-mode-cta"
+                    onClick={handleCreatePrivateRoom}
+                    id="btn-create-private-room"
+                  >
+                    <Plus size={14} />
+                    <span>Create Private Room</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Private Room: Join with Room ID */}
+              <div className="card mp-unranked-card mp-private-join-card">
+                <div className="mp-mode-card-top">
+                  <div className="mp-mode-icon-wrap" style={{ background: 'rgba(245, 158, 11, 0.12)', color: '#F59E0B' }}>
+                    <Key size={22} />
+                  </div>
+                  <span className="badge badge-amber">Private Code</span>
+                </div>
+                <h3 className="mp-mode-title">Join with Room ID</h3>
+                <p className="mp-mode-desc">
+                  Have a friend's room code? Enter the 8-character Room ID below to join their private race.
+                </p>
+
+                <form onSubmit={handleJoinWithId} className="mp-join-id-form">
                   <input
                     type="text"
-                    placeholder="Search by room code, host, or language..."
-                    value={lobbySearch}
-                    onChange={(e) => setLobbySearch(e.target.value)}
-                    className="mp-search-input"
-                    id="input-lobby-search"
+                    className="mp-join-input"
+                    placeholder="e.g. DEV-8412"
+                    value={joinRoomInput}
+                    onChange={(e) => setJoinRoomInput(e.target.value)}
                   />
-                </div>
-              </div>
+                  {joinError && <span className="mp-join-error">{joinError}</span>}
 
-              <div className="card-bd mp-lobbies-bd">
-                {filteredOpenRooms.length === 0 ? (
-                  <div className="mp-empty-lobbies">
-                    <AlertCircle size={28} className="empty-alert-icon" />
-                    <h4>No active rooms matching filter</h4>
-                    <p>Host your own room or reset your search term.</p>
+                  <div className="mp-mode-footer" style={{ marginTop: 14 }}>
                     <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => handleOpenSetup('classic')}
+                      type="submit"
+                      className="btn btn-secondary btn-sm mp-mode-cta"
+                      id="btn-submit-join-id"
                     >
-                      Host a Room
+                      <ArrowRight size={14} />
+                      <span>Join Room by Code</span>
                     </button>
                   </div>
-                ) : (
-                  <div className="mp-room-cards-grid">
-                    {filteredOpenRooms.map((room) => (
-                      <div key={room.id} className="mp-room-item-card">
-                        <div className="mp-room-item-header">
-                          <span className="room-code-tag">{room.code}</span>
-                          <span className="badge badge-indigo">{room.modeName}</span>
-                          <span className="room-ping-text">
-                            <span className="ping-dot" /> {room.ping}
-                          </span>
-                        </div>
-
-                        <div className="mp-room-item-body">
-                          <h4 className="mp-room-item-title">{room.name}</h4>
-                          <div className="mp-room-meta-row">
-                            <span className="badge badge-teal">
-                              <span
-                                className="lang-dot-inline"
-                                style={{ background: LANG_COLORS[room.language] || '#2563EB' }}
-                              />
-                              {room.language}
-                            </span>
-                            <span className="badge badge-emerald">{room.difficulty}</span>
-                            <span className="room-players-badge">
-                              <Users size={12} />
-                              {room.currentPlayers} / {room.maxPlayers}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mp-room-item-footer">
-                          <span className="room-host-lbl">Host: {room.host}</span>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-xs btn-join-room"
-                            onClick={() => handleJoinRoom(room)}
-                            id={`btn-join-${room.code}`}
-                          >
-                            <span>Join Lobby</span>
-                            <ArrowRight size={11} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                </form>
               </div>
             </div>
           </section>
 
-          {/* Recent Matches History Record */}
-          <section className="mp-history-section">
+          {/* Recent Arena Matches */}
+          <section className="mp-section">
             <div className="card mp-history-card">
               <div className="card-hd">
                 <div className="mp-hd-title-group">
-                  <Trophy size={15} className="trophy-icon" />
+                  <Trophy size={16} className="trophy-icon" />
                   <h3 className="card-title">Recent Arena Matches</h3>
                 </div>
               </div>
@@ -597,225 +795,102 @@ export default function Multiplayer() {
 
       {/* ============================================================
           VIEW 2: DEDICATED MODE SETUP / LOBBY CONFIGURATION STUDIO
-          (Opens when clicking "Select Mode" on any of the 7 cards)
           ============================================================ */}
       {viewState === 'setup' && (
-        <div className="mp-setup-workspace">
-          {/* Setup Header */}
-          <header className="tpl-header mp-setup-header">
-            <div className="tpl-header-left">
-              <button
-                type="button"
-                className="mp-back-btn"
-                onClick={() => setViewState('hub')}
-              >
-                <ChevronLeft size={14} />
-                <span>Back to Arena Modes</span>
-              </button>
-              <div className="mp-setup-title-row">
-                <div className={`stat-icon-wrap ${activeSetupMode.tone} mini`}>
-                  {(() => {
-                    const IconComp = MODE_ICONS[activeSetupMode.iconName] || Flag;
-                    return <IconComp size={18} strokeWidth={2.2} />;
-                  })()}
-                </div>
-                <h1 className="tpl-title">{activeSetupMode.title} Setup</h1>
-              </div>
-              <p className="tpl-subtitle">{activeSetupMode.description}</p>
-            </div>
+        <div className="card mp-setup-panel">
+          <div className="mp-setup-header">
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs mp-back-btn"
+              onClick={() => setViewState('hub')}
+            >
+              <ChevronLeft size={14} />
+              <span>Back to Arena Hub</span>
+            </button>
+            <h2 className="mp-setup-title">Configure {activeSetupMode.title}</h2>
+          </div>
 
-            {/* Quick Switch Mode Tabs */}
-            <div className="mp-setup-mode-tabs">
-              {MULTIPLAYER_MODES.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={`mp-setup-mode-tab ${setupModeId === m.id ? 'active' : ''}`}
-                  onClick={() => setSetupModeId(m.id)}
-                >
-                  {m.title}
-                </button>
-              ))}
-            </div>
-          </header>
-
-          {/* Two-Column Setup Studio */}
           <div className="mp-setup-grid">
-            {/* Left: Configuration Form */}
-            <div className="card mp-setup-form-card">
-              <div className="card-hd">
-                <h3 className="card-title">Match Configuration</h3>
-                <span className="badge badge-indigo">{activeSetupMode.badge}</span>
+            <div className="mp-setup-form">
+              <div className="mp-field-group">
+                <label className="mp-lbl">Room Name</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={setupRoomName}
+                  onChange={(e) => setSetupRoomName(e.target.value)}
+                  placeholder="e.g. Speed Demon Race"
+                />
               </div>
 
-              <div className="card-bd mp-setup-form-bd">
-                {/* Room Title */}
-                <div className="mp-form-group">
-                  <label className="mp-label">
-                    <span>Lobby Title</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={setupRoomName}
-                    onChange={(e) => setSetupRoomName(e.target.value)}
-                    placeholder="e.g. C++ Systems Sprint 1v1"
-                    className="mp-input"
-                  />
-                </div>
-
-                {/* Generated Room Code Badge */}
-                <div className="mp-form-group">
-                  <label className="mp-label">
-                    <span>Generated Room Code</span>
-                    <span className="mp-label-hint">Share with friends to join</span>
-                  </label>
-                  <div className="mp-room-code-display" onClick={() => handleCopyCode(setupRoomCode)}>
-                    <span className="code-text">{setupRoomCode}</span>
-                    <button type="button" className="code-copy-btn">
-                      {isCopiedCode ? <Check size={13} color="#10B981" /> : <Copy size={13} />}
-                      <span>{isCopiedCode ? 'Copied' : 'Copy'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Target Language */}
-                <div className="mp-form-group">
-                  <label className="mp-label">
-                    <span>Language Environment</span>
-                  </label>
-                  <div className="mp-lang-pills">
-                    {LANGUAGES.filter((l) => l !== 'All').map((l) => (
-                      <button
-                        key={l}
-                        type="button"
-                        className={`mp-lang-pill ${setupLang === l ? 'active' : ''}`}
-                        onClick={() => setSetupLang(l)}
-                      >
-                        <span
-                          className="lang-dot-inline"
-                          style={{ background: LANG_COLORS[l] || '#2563EB' }}
-                        />
-                        <span>{l}</span>
-                      </button>
+              <div className="mp-field-row">
+                <div className="mp-field-group">
+                  <label className="mp-lbl">Programming Language</label>
+                  <select
+                    className="select-field"
+                    value={setupLang}
+                    onChange={(e) => setSetupLang(e.target.value)}
+                  >
+                    {LANGUAGES.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
 
-                {/* Difficulty */}
-                <div className="mp-form-group">
-                  <label className="mp-label">
-                    <span>Difficulty Tier</span>
-                  </label>
-                  <div className="mp-diff-pills">
-                    {DIFFICULTIES.filter((d) => d !== 'All').map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        className={`mp-diff-pill ${setupDiff === d ? 'active' : ''} ${d.toLowerCase()}`}
-                        onClick={() => setSetupDiff(d)}
-                      >
-                        <span>{d}</span>
-                      </button>
+                <div className="mp-field-group">
+                  <label className="mp-lbl">Difficulty Tier</label>
+                  <select
+                    className="select-field"
+                    value={setupDiff}
+                    onChange={(e) => setSetupDiff(e.target.value)}
+                  >
+                    {DIFFICULTIES.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
+              </div>
 
-                {/* Player Limit */}
-                <div className="mp-form-group">
-                  <label className="mp-label">
-                    <span>Player Capacity: {setupMaxPlayers} Racers</span>
-                    <span className="mp-label-hint">Supported: {activeSetupMode.playerRange}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="2"
-                    max={setupModeId === 'battle-royale' ? 16 : 8}
+              <div className="mp-field-row">
+                <div className="mp-field-group">
+                  <label className="mp-lbl">Max Participants</label>
+                  <select
+                    className="select-field"
                     value={setupMaxPlayers}
                     onChange={(e) => setSetupMaxPlayers(Number(e.target.value))}
-                    className="mp-range-slider"
-                  />
+                  >
+                    <option value={2}>2 Racers (1v1)</option>
+                    <option value={4}>4 Racers (Standard)</option>
+                    <option value={8}>8 Racers (Large)</option>
+                  </select>
                 </div>
 
-                {/* Simulated Competitors Toggle */}
-                <div className="mp-form-group">
-                  <label className="mp-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={setupIncludeBots}
-                      onChange={(e) => setSetupIncludeBots(e.target.checked)}
-                    />
-                    <span>Populate vacant slots with simulated benchmark bots</span>
-                  </label>
-                </div>
-
-                {/* Room Privacy */}
-                <div className="mp-form-group">
-                  <label className="mp-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={setupIsPrivate}
-                      onChange={(e) => setSetupIsPrivate(e.target.checked)}
-                    />
-                    <span>Private Match (Requires Room Code to Join)</span>
-                  </label>
+                <div className="mp-field-group">
+                  <label className="mp-lbl">Privacy</label>
+                  <select
+                    className="select-field"
+                    value={setupIsPrivate ? 'private' : 'public'}
+                    onChange={(e) => setSetupIsPrivate(e.target.value === 'private')}
+                  >
+                    <option value="public">Public Matchmaking</option>
+                    <option value="private">Private (Invite Link / Code Only)</option>
+                  </select>
                 </div>
               </div>
-            </div>
 
-            {/* Right: Live Match Blueprint & Launch Studio */}
-            <div className="card mp-setup-preview-card">
-              <div className="card-hd">
-                <h3 className="card-title">Match Blueprint</h3>
-                <span className="badge badge-teal">{setupLang}</span>
-              </div>
-
-              <div className="card-bd mp-setup-preview-bd">
-                <div className="mp-blueprint-meta">
-                  <h4 className="mp-blueprint-title">{currentSnippet.title}</h4>
-                  <p className="mp-blueprint-desc">
-                    Synchronized competitive typing snippet. All racers type this exact code simultaneously.
-                  </p>
-                  <div className="mp-blueprint-stats">
-                    <span className="stat-pill">{currentSnippet.code.split('\n').length} lines</span>
-                    <span className="stat-pill">{currentSnippet.code.length} characters</span>
-                    <span className="stat-pill">{setupDiff}</span>
-                  </div>
-                </div>
-
-                {/* Syntax Code Preview */}
-                <div className="mp-blueprint-code-box">
-                  <pre className="mp-blueprint-pre">
-                    <code>{currentSnippet.code}</code>
-                  </pre>
-                </div>
-
-                {/* Competitive Rules Box */}
-                <div className="mp-rules-callout">
-                  <div className="rules-header">
-                    <Shield size={14} className="shield-icon" />
-                    <span>Mode Rules & Conditions</span>
-                  </div>
-                  <p className="rules-text">
-                    {setupModeId === 'duel'
-                      ? 'Strict 1v1 duel. Accuracy penalty: 5 WPM deducted per uncorrected error.'
-                      : setupModeId === 'battle-royale'
-                      ? 'Checkpoint elimination: Bottom 20% racers eliminated at lines 5 and 10.'
-                      : setupModeId === 'boss-fight'
-                      ? 'Cooperative Raid: Aggregate team WPM depletes the automated boss HP bar.'
-                      : 'First racer to finish all syntactically correct lines wins 1st place podium.'}
-                  </p>
-                </div>
-
-                {/* Launch Action Button */}
+              <div className="mp-setup-actions">
                 <button
                   type="button"
-                  className="mp-launch-room-btn"
+                  className="btn btn-primary"
                   onClick={handleConfirmCreateRoom}
                   id="btn-confirm-create-room"
                 >
-                  <Play size={15} fill="currentColor" strokeWidth={0} />
-                  <span>Create Lobby & Enter Room</span>
-                  <ArrowRight size={14} />
+                  <Play size={14} fill="currentColor" />
+                  <span>Launch Arena Lobby</span>
                 </button>
               </div>
             </div>
@@ -824,57 +899,27 @@ export default function Multiplayer() {
       )}
 
       {/* ============================================================
-          VIEW 3: ROOM WORKSPACE (LIKE PRACTICE SECTION)
-          Synchronized Editor + Virtual Keyboard + Racers Track
+          VIEW 3: ACTIVE SYNCHRONIZED RACE ROOM
           ============================================================ */}
       {viewState === 'room' && activeRoom && (
         <div className="practice-workspace-root mp-room-workspace">
-          {/* Top Practice-Style Header Bar */}
-          <div className="practice-header-root mp-room-top-bar">
-            <div className="ph-left">
-              <button
-                type="button"
-                className="ph-back-btn"
-                onClick={handleLeaveRoom}
-                title="Leave room and return to Arena"
+          {/* Header Telemetry Bar */}
+          <div className="practice-header-container mp-room-header-bar card">
+            <div className="ph-left-meta">
+              <span className="badge badge-indigo">{activeRoom.modeName}</span>
+              <h2 className="ph-title">{activeRoom.name}</h2>
+              <div
+                className="mp-code-share-chip"
+                onClick={handleCopyCode}
+                title="Click to copy Room Code"
               >
-                <ChevronLeft size={16} />
-              </button>
-              <div className="ph-title-group">
-                <div className="ph-title-row">
-                  <h2 className="ph-title">{activeRoom.name}</h2>
-                  <div
-                    className="mp-room-code-tag-interactive"
-                    onClick={() => handleCopyCode(activeRoom.code)}
-                    title="Click to copy code"
-                  >
-                    <span className="code-lbl">CODE:</span>
-                    <span className="code-val">{activeRoom.code}</span>
-                    {isCopiedCode ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
-                  </div>
-                </div>
-                <div className="ph-meta-row">
-                  <span className="badge badge-indigo">{activeRoom.modeName}</span>
-                  <span className="badge badge-teal">
-                    <span
-                      className="lang-dot-inline"
-                      style={{ background: LANG_COLORS[activeRoom.language] || '#2563EB' }}
-                    />
-                    {activeRoom.language}
-                  </span>
-                  <span className="badge badge-emerald">{activeRoom.difficulty}</span>
-                </div>
+                <span>Room Code:</span>
+                <strong>{activeRoom.code}</strong>
+                {isCopiedCode ? <Check size={12} color="#10B981" /> : <Copy size={12} />}
               </div>
             </div>
 
-            {/* Live Telemetry Chips */}
-            <div className="ph-metrics-bar">
-              <div className="ph-metric-chip">
-                <span className="chip-label">RANK</span>
-                <span className="chip-value rank-highlight">
-                  {humanRank === 1 ? '1st' : humanRank === 2 ? '2nd' : `${humanRank}th`}
-                </span>
-              </div>
+            <div className="ph-center-metrics">
               <div className="ph-metric-chip">
                 <span className="chip-label">SPEED</span>
                 <span className="chip-value">{humanWpm} WPM</span>
@@ -893,7 +938,6 @@ export default function Multiplayer() {
               </div>
             </div>
 
-            {/* Right Action */}
             <div className="ph-right-actions">
               {roomSessionState === 'waiting' ? (
                 <button
@@ -917,11 +961,10 @@ export default function Multiplayer() {
             </div>
           </div>
 
-          {/* Main Workspace Layout (Two-Column like Practice.jsx) */}
+          {/* Main Workspace Layout */}
           <div className="practice-layout-grid mp-room-grid">
-            {/* Left Column: Synchronized Competitors Track + CodePracticeEditor + VirtualKeyboard */}
             <div className="practice-left-column">
-              {/* Synchronized Competitors Race Track (at top of Editor) */}
+              {/* Synchronized Competitors Race Track */}
               <div className="card mp-practice-track-card">
                 <div className="mp-track-title-row">
                   <div className="track-title-left">
@@ -970,7 +1013,7 @@ export default function Multiplayer() {
                 </div>
               </div>
 
-              {/* Code Practice Editor (Identical to Practice Workspace) */}
+              {/* Code Practice Editor */}
               <div className="mp-editor-wrapper">
                 <CodePracticeEditor
                   tokenizedSnippet={tokenizedSnippet}
@@ -993,58 +1036,49 @@ export default function Multiplayer() {
                       <Clock size={20} className="banner-clock-icon" />
                       <div>
                         <h4>Lobby Waiting Room</h4>
-                        <p>Racers are readying up. When ready, click Launch Countdown to begin the race!</p>
+                        <p>Racers are readying up. When ready, click Start Race to begin the race!</p>
                       </div>
                     </div>
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm mp-banner-launch-btn"
+                      className="btn btn-primary btn-sm"
                       onClick={handleStartCountdown}
-                      id="btn-launch-countdown-from-banner"
                     >
-                      <Play size={13} fill="currentColor" strokeWidth={0} />
-                      <span>Launch Countdown</span>
+                      <Play size={13} fill="currentColor" />
+                      <span>Start Race</span>
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* Interactive Virtual Keyboard */}
               <VirtualKeyboard
                 targetChar={currentTargetChar}
                 lastPressedCode={lastPressedCode}
               />
             </div>
 
-            {/* Right Column: Connected Competitors & Telemetry Standings */}
+            {/* Right Column: Lobby Participants & Telemetry */}
             <div className="practice-right-column">
-              {/* Connected Competitors Card */}
-              <div className="card mp-side-participants-card">
+              <div className="card mp-lobby-roster-card">
                 <div className="card-hd">
-                  <div className="side-hd-left">
-                    <Users size={14} />
-                    <h3 className="card-title">Lobby Competitors</h3>
-                  </div>
+                  <h3 className="card-title">Racers in Lobby</h3>
                   <span className="badge badge-indigo">
                     {(activeRoom.participants || []).length} / {activeRoom.maxPlayers}
                   </span>
                 </div>
 
-                <div className="card-bd mp-side-participants-bd">
-                  {(activeRoom.participants || []).map((p, idx) => (
-                    <div key={p.id || idx} className="mp-side-participant-row">
-                      <div className="side-avatar">{p.isHuman ? '👨‍💻' : '🤖'}</div>
-                      <div className="side-p-info">
-                        <div className="side-p-name-row">
-                          <span className="side-p-name">{p.name}</span>
-                          {p.isHost && <span className="host-pill">Host</span>}
-                        </div>
-                        <span className="side-p-sub">
-                          {p.isHuman ? 'Human Racer (You)' : `Benchmark Bot (${p.targetWpm || 60} WPM)`}
+                <div className="card-bd mp-lobby-roster-bd">
+                  {(activeRoom.participants || []).map((p) => (
+                    <div key={p.id} className="mp-roster-item">
+                      <div className="roster-avatar">{p.avatar}</div>
+                      <div className="roster-info">
+                        <span className="roster-name">{p.name}</span>
+                        <span className="roster-meta">
+                          {p.isHuman ? 'You (Human Racer)' : 'Benchmark Bot'}
                         </span>
                       </div>
-                      <div className="side-p-status">
-                        {p.isReady || isUserReady ? (
+                      <div className="roster-status">
+                        {p.isReady ? (
                           <span className="status-badge ready">
                             <Check size={11} /> Ready
                           </span>
@@ -1056,7 +1090,6 @@ export default function Multiplayer() {
                   ))}
                 </div>
 
-                {/* Match Action in Waiting State */}
                 {roomSessionState === 'waiting' && (
                   <div className="mp-side-controls">
                     <button
@@ -1073,7 +1106,6 @@ export default function Multiplayer() {
                 )}
               </div>
 
-              {/* Live Match Standings & Telemetry Card */}
               <div className="card mp-side-telemetry-card">
                 <div className="card-hd">
                   <div className="side-hd-left">
@@ -1140,7 +1172,7 @@ export default function Multiplayer() {
       )}
 
       {/* ============================================================
-          VIEW 5: RESULTS PODIUM & SUMMARY
+          VIEW 5: RESULTS PODIUM & ELO RATING ADJUSTMENT
           ============================================================ */}
       {viewState === 'results' && (
         <div className="mp-results-screen">
@@ -1156,6 +1188,46 @@ export default function Multiplayer() {
                 Official competitive match results recorded for {activeRoom?.modeName || 'Classic Race'}.
               </p>
             </div>
+
+            {/* ELO Rating Adjustment Card (if Ranked) */}
+            {lastEloResult ? (
+              <div className="card mp-elo-results-card">
+                <div className="mp-elo-results-header">
+                  <span className="mp-elo-results-label">COMPETITIVE ELO RATING ADJUSTMENT</span>
+                  <span
+                    className={`mp-elo-delta-pill ${
+                      lastEloResult.delta > 0 ? 'is-gain' : 'is-loss'
+                    }`}
+                  >
+                    {lastEloResult.delta > 0 ? `+${lastEloResult.delta}` : lastEloResult.delta} ELO
+                  </span>
+                </div>
+                <div className="mp-elo-transition-row">
+                  <div className="mp-elo-point">
+                    <span className="mp-elo-sub">PREVIOUS RATING</span>
+                    <strong className="mp-elo-val">{lastEloResult.oldRating} ELO</strong>
+                  </div>
+                  <div className="mp-elo-arrow">➔</div>
+                  <div className="mp-elo-point">
+                    <span className="mp-elo-sub">UPDATED RATING</span>
+                    <strong className="mp-elo-val is-new-rating" style={{ color: userTier.color }}>
+                      {lastEloResult.rating} ELO
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="card mp-elo-results-card is-casual">
+                <div className="mp-elo-results-header">
+                  <span className="mp-elo-results-label">UNRANKED CASUAL MATCH</span>
+                  <span className="badge badge-teal">Rating Unchanged</span>
+                </div>
+                <p className="mp-elo-casual-desc">
+                  This was an unranked practice match. Your competitive ELO ladder rating remains at{' '}
+                  <strong>{userElo.rating} ELO</strong>.
+                </p>
+              </div>
+            )}
 
             {/* Podium Visual */}
             <div className="mp-podium-row">
@@ -1202,6 +1274,14 @@ export default function Multiplayer() {
               <button
                 type="button"
                 className="btn btn-secondary"
+                onClick={() => navigate('/leaderboard')}
+              >
+                <Trophy size={14} />
+                <span>View Leaderboard</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
                 onClick={handleLeaveRoom}
               >
                 <span>Return to Arena Hub</span>

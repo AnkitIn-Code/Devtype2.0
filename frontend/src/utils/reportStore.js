@@ -380,10 +380,17 @@ export function filterSessionsByRange(sessions, range = '30d') {
   if (!sessions || sessions.length === 0) return [];
   if (range === 'all') return [...sessions];
 
-  const now = Date.now();
-  const daysMap = { '7d': 7, '30d': 30, '90d': 90 };
-  const cutoffDays = daysMap[range] || 30;
-  const cutoffTime = now - cutoffDays * 24 * 60 * 60 * 1000;
+  const now = new Date();
+  let cutoffTime;
+
+  if (range === 'today' || range === '24h') {
+    // Midnight of the current day
+    cutoffTime = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  } else {
+    const daysMap = { '7d': 7, '30d': 30, '90d': 90 };
+    const cutoffDays = daysMap[range] || 30;
+    cutoffTime = Date.now() - cutoffDays * 24 * 60 * 60 * 1000;
+  }
 
   return sessions.filter((s) => {
     const dateVal = s.date || s.completedAt || s.startedAt;

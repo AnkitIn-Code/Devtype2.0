@@ -5,7 +5,7 @@
  * verified, authentic implementations in C++, C, Java, Python, JavaScript, TypeScript, Go, Rust, and SQL.
  */
 
-export const PREDEFINED_BLUEPRINTS = [
+const BASE_PREDEFINED_BLUEPRINTS = [
   // ─────────────────────────────────────────────────────────────
   // 1. ALGORITHMS & DATA STRUCTURES
   // ─────────────────────────────────────────────────────────────
@@ -1028,6 +1028,17 @@ ORDER BY language, rank_position;`,
   },
 ];
 
+
+import { CURATED_SNIPPETS } from './curatedSnippets.js';
+
+const TRACK_CATEGORY_MAP = {
+  foundations: 'C++ Core Mechanics',
+  stl: 'C++ STL Mastery',
+  'java-foundations': 'Java Core Foundations',
+  jcf: 'Java Collections (JCF)',
+  cp: 'Competitive Algorithms',
+};
+
 /**
  * Normalizes language names to standard key (C++, Python, Java, etc.)
  */
@@ -1047,6 +1058,51 @@ export function normalizeLanguageName(raw) {
 }
 
 /**
+ * Transforms curated snippets from the reference catalog into the full Blueprint catalog schema.
+ */
+const CURATED_BLUEPRINTS = CURATED_SNIPPETS.map((snippet) => {
+  const lang = normalizeLanguageName(snippet.language) || 'C++';
+  const track = snippet.track || 'cp';
+  const category = snippet.category || TRACK_CATEGORY_MAP[track] || 'Competitive Algorithms';
+
+  return {
+    key: snippet.slug || String(snippet.id),
+    id: snippet.id,
+    title: snippet.title,
+    category,
+    subCategory: snippet.subCategory || snippet.pattern || '',
+    track,
+    difficulty: snippet.difficulty || 'Intermediate',
+    description: snippet.description || snippet.coreConcept || 'Algorithmic reference blueprint with optimal asymptotic complexity.',
+    languages: [lang],
+    slugs: {
+      [lang]: snippet.slug || String(snippet.id),
+    },
+    codeByLanguage: {
+      [lang]: snippet.code,
+    },
+    timeComplexity: snippet.timeComplexity || '',
+    spaceComplexity: snippet.spaceComplexity || '',
+    paradigm: snippet.paradigm || '',
+    coreConcept: snippet.coreConcept || '',
+    theory: snippet.theory || '',
+    tags: snippet.tags || [],
+    xpBounty: snippet.xpBounty || 50,
+  };
+});
+
+/**
+ * Unified authoritative blueprints catalog combining multi-language foundation templates
+ * and all 83 reference blueprints from C++, Java, and CP tracks.
+ */
+export const PREDEFINED_BLUEPRINTS = [
+  ...BASE_PREDEFINED_BLUEPRINTS,
+  ...CURATED_BLUEPRINTS.filter(
+    (cb) => !BASE_PREDEFINED_BLUEPRINTS.some((bb) => bb.key === cb.key || Object.values(bb.slugs || {}).includes(cb.key))
+  ),
+];
+
+/**
  * Normalizes any blueprint or snippet into the standard frontend Snippet contract.
  * Strictly guarantees that if a C++ drill is requested (e.g., cpp-binary-search or lang=C++),
  * C++ code is returned.
@@ -1056,6 +1112,35 @@ export function getPredefinedSnippet(idOrSlug, preferredLang = null) {
 
   const needle = String(idOrSlug).toLowerCase().trim();
   let targetLang = normalizeLanguageName(preferredLang);
+
+  // 0. Direct match against CURATED_SNIPPETS catalog
+  const directCurated = CURATED_SNIPPETS.find(
+    (s) =>
+      s.slug?.toLowerCase() === needle ||
+      String(s.id).toLowerCase() === needle ||
+      s.title?.toLowerCase() === needle
+  );
+  if (directCurated) {
+    const lang = normalizeLanguageName(directCurated.language) || targetLang || 'C++';
+    return {
+      id: directCurated.slug || String(directCurated.id),
+      slug: directCurated.slug || String(directCurated.id),
+      title: directCurated.title,
+      language: lang,
+      difficulty: directCurated.difficulty || 'Intermediate',
+      category: directCurated.category || TRACK_CATEGORY_MAP[directCurated.track] || 'Competitive Algorithms',
+      track: directCurated.track,
+      code: directCurated.code,
+      content: directCurated.code,
+      description: directCurated.description || directCurated.coreConcept || '',
+      timeComplexity: directCurated.timeComplexity || '',
+      spaceComplexity: directCurated.spaceComplexity || '',
+      paradigm: directCurated.paradigm || '',
+      coreConcept: directCurated.coreConcept || '',
+      theory: directCurated.theory || '',
+      isLanguageLocked: true,
+    };
+  }
 
   // Detect language embedded in the identifier (e.g., "cpp-binary-search", "binary-search-cpp")
   if (!targetLang) {
@@ -1094,9 +1179,15 @@ export function getPredefinedSnippet(idOrSlug, preferredLang = null) {
         language: lang,
         difficulty: match.difficulty,
         category: match.category,
+        track: match.track,
         code,
         content: code,
         description: match.description,
+        timeComplexity: match.timeComplexity || '',
+        spaceComplexity: match.spaceComplexity || '',
+        paradigm: match.paradigm || '',
+        coreConcept: match.coreConcept || '',
+        theory: match.theory || '',
         isLanguageLocked: true,
       };
     }
@@ -1115,9 +1206,15 @@ export function getPredefinedSnippet(idOrSlug, preferredLang = null) {
           language: resolvedLang,
           difficulty: bp.difficulty,
           category: bp.category,
+          track: bp.track,
           code,
           content: code,
           description: bp.description,
+          timeComplexity: bp.timeComplexity || '',
+          spaceComplexity: bp.spaceComplexity || '',
+          paradigm: bp.paradigm || '',
+          coreConcept: bp.coreConcept || '',
+          theory: bp.theory || '',
           isLanguageLocked: true,
         };
       }
@@ -1148,9 +1245,15 @@ export function getPredefinedSnippet(idOrSlug, preferredLang = null) {
         language: lang,
         difficulty: bp.difficulty,
         category: bp.category,
+        track: bp.track,
         code,
         content: code,
         description: bp.description,
+        timeComplexity: bp.timeComplexity || '',
+        spaceComplexity: bp.spaceComplexity || '',
+        paradigm: bp.paradigm || '',
+        coreConcept: bp.coreConcept || '',
+        theory: bp.theory || '',
         isLanguageLocked: true,
       };
     }
@@ -1158,3 +1261,64 @@ export function getPredefinedSnippet(idOrSlug, preferredLang = null) {
 
   return null;
 }
+
+/**
+ * Returns all predefined templates across all languages (100+ items)
+ * with complete content, language, difficulty, and category.
+ */
+export function getAllPredefinedTemplates() {
+  const result = [];
+  const seen = new Set();
+
+  for (const bp of PREDEFINED_BLUEPRINTS) {
+    const langs = bp.languages && bp.languages.length > 0
+      ? bp.languages
+      : Object.keys(bp.codeByLanguage || {});
+
+    for (const lang of langs) {
+      const code = bp.codeByLanguage?.[lang] || bp.code || '';
+      if (!code) continue;
+      const normalizedLang = normalizeLanguageName(lang);
+      const slug = bp.slugs?.[lang] || `${bp.key}-${normalizedLang.toLowerCase().replace('+', 'p')}`;
+      const uniqueKey = `${slug}-${normalizedLang}`;
+
+      if (!seen.has(uniqueKey)) {
+        seen.add(uniqueKey);
+        result.push({
+          id: slug,
+          slug,
+          title: bp.title,
+          language: normalizedLang,
+          difficulty: bp.difficulty || 'Intermediate',
+          category: bp.category || 'Algorithms',
+          content: code,
+          code,
+          bugFix: false,
+        });
+      }
+    }
+  }
+
+  // Also include standalone curated snippets if not present
+  for (const snip of CURATED_SNIPPETS) {
+    const lang = normalizeLanguageName(snip.language);
+    const key = `curated-${snip.slug || snip.id}-${lang}`;
+    if (!seen.has(key) && (snip.content || snip.code)) {
+      seen.add(key);
+      result.push({
+        id: snip.slug || snip.id,
+        slug: snip.slug || snip.id,
+        title: snip.title,
+        language: lang,
+        difficulty: snip.difficulty || 'Intermediate',
+        category: snip.category || 'Algorithms',
+        content: snip.content || snip.code,
+        code: snip.content || snip.code,
+        bugFix: false,
+      });
+    }
+  }
+
+  return result;
+}
+

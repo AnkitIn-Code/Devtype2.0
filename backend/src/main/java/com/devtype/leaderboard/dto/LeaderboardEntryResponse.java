@@ -1,23 +1,22 @@
 package com.devtype.leaderboard.dto;
 
 /**
- * Leaderboard ranking projection for platform developers.
+ * Competitive Leaderboard entry reflecting authoritative database records.
  */
 public record LeaderboardEntryResponse(
-    Long id,
+    Long userId,
     int rank,
     String name,
-    String displayName,
+    String username,
     String avatar,
     String avatarBg,
-    int level,
-    String title,
-    String primaryLang,
-    int wpm,
-    long xp,
-    double accuracy,
-    long sessions,
-    int streak,
+    int rating,
+    String seasonTier,
+    int peakRating,
+    int wins,
+    int losses,
+    int matchesPlayed,
+    int winRate,
     boolean isCurrentUser,
-    boolean isFriend
+    Integer lastMatchPoints
 ) {}

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import {
   Zap, Flame, CheckCircle2, AlertTriangle, Clock,
-  Activity, Volume2, VolumeX, RotateCcw, ArrowLeft
+  Activity, Volume2, VolumeX, RotateCcw, ArrowLeft, ShieldAlert
 } from 'lucide-react';
 
 /**
@@ -20,6 +20,8 @@ export default function PracticeTelemetryCard({
   syntaxErrors = { brackets: 0, punctuation: 0, identifiers: 0, whitespace: 0 },
   isTyping = false,
   soundEnabled = true,
+  mode = 'Free',
+  remainingSeconds = null,
   onToggleSound,
   onReset,
   onBackToDashboard,
@@ -107,6 +109,37 @@ export default function PracticeTelemetryCard({
           </div>
         </div>
       </div>
+
+      {/* ── Mode Specific HUD: Timed 60s Sprint or Strict Warning ── */}
+      {mode === 'Timed' && (
+        <div className={`pt-timed-hud ${(remainingSeconds != null && remainingSeconds <= 10) ? 'pt-timed-urgent' : ''}`}>
+          <div className="pt-timed-hud-top">
+            <div className="pt-timed-label-box">
+              <Clock size={13} className="pt-timed-icon" />
+              <span>60s SPEED SPRINT</span>
+            </div>
+            <div className="pt-timed-val">
+              <strong>{remainingSeconds != null ? remainingSeconds : 60}</strong>
+              <small>s left</small>
+            </div>
+          </div>
+          <div className="pt-timed-track">
+            <div
+              className="pt-timed-fill"
+              style={{
+                width: `${Math.max(0, Math.min(100, ((remainingSeconds != null ? remainingSeconds : 60) / 60) * 100))}%`
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {mode === 'Strict' && (
+        <div className="pt-strict-hud">
+          <ShieldAlert size={13} className="pt-strict-icon" />
+          <span>Strict Invariant: Typos block progress until corrected</span>
+        </div>
+      )}
 
       <div className="pt-divider" />
 

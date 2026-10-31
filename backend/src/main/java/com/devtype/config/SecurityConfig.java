@@ -117,10 +117,13 @@ public class SecurityConfig {
                         .accessDeniedHandler(jwtAccessDeniedHandler)
                 )
                 .authorizeHttpRequests(auth -> auth
+                        // WebSocket authenticates the first frame; no credentials in URLs.
+                        .requestMatchers("/ws/multiplayer").permitAll()
                         // Public anonymous endpoints
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers("/api/v1/health", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/templates/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/snippets/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/srs/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/leaderboard/**").permitAll()
                         .requestMatchers("/api/test/**").permitAll() // Test harness endpoints

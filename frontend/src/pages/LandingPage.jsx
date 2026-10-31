@@ -86,7 +86,7 @@ export default function LandingPage() {
               </div>
               <div className="trust-pill">
                 <CheckCircle2 size={13} color="#059669" />
-                <span>No Mock Data — Real Server Auth</span>
+                <span>Enterprise Cloud Sync &amp; Telemetry</span>
               </div>
             </div>
 

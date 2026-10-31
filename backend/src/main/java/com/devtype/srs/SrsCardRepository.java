@@ -16,12 +16,12 @@ public interface SrsCardRepository extends JpaRepository<SrsCard, Long> {
 
     List<SrsCard> findByUserIdOrderByDueDateAsc(Long userId);
 
-    @Query("SELECT c FROM SrsCard c WHERE c.user.id = :userId AND c.dueDate <= :now ORDER BY c.dueDate ASC")
+    @Query("SELECT c FROM SrsCard c WHERE c.user.id = :userId AND c.isMastered = false AND (c.dueDate IS NULL OR c.dueDate <= :now) ORDER BY c.dueDate ASC")
     List<SrsCard> findDueCardsByUserId(@Param("userId") Long userId, @Param("now") Instant now);
 
     Optional<SrsCard> findByUserIdAndSnippetId(Long userId, String snippetId);
 
-    @Query("SELECT COUNT(c) FROM SrsCard c WHERE c.user.id = :userId AND c.dueDate <= :now")
+    @Query("SELECT COUNT(c) FROM SrsCard c WHERE c.user.id = :userId AND c.isMastered = false AND (c.dueDate IS NULL OR c.dueDate <= :now)")
     long countDueCardsByUserId(@Param("userId") Long userId, @Param("now") Instant now);
 
     long countByUserId(Long userId);

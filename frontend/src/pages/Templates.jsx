@@ -1,14 +1,24 @@
 // src/pages/Templates.jsx
 import { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, X, Sparkles, LayoutGrid, Layers,
   Play, BookOpen, Code2, Cpu, Globe, Database,
-  Lock, CheckCircle2, ChevronRight, Eye, ShieldAlert,
+  Lock, CheckCircle2, ChevronRight, ChevronLeft, ShieldAlert,
   Flame, Terminal, Zap, ArrowRight, Filter
 } from 'lucide-react';
 import { PREDEFINED_BLUEPRINTS } from '../data/predefinedBlueprints';
 import { templateService } from '../services/templateService';
+
+const TRACKS = [
+  { id: 'all', label: 'All Tracks' },
+  { id: 'foundations', label: 'C++ Core' },
+  { id: 'stl', label: 'C++ STL' },
+  { id: 'java-foundations', label: 'Java Core' },
+  { id: 'jcf', label: 'Java JCF' },
+  { id: 'cp', label: 'Competitive Algorithms' },
+];
 
 export default function Templates() {
   const navigate = useNavigate();
@@ -19,6 +29,7 @@ export default function Templates() {
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTrack, setSelectedTrack] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState('All');
   const [selectedLanguage, setSelectedLanguage] = useState('All');
@@ -26,9 +37,11 @@ export default function Templates() {
 
   // Modals State
   const [selectedBlueprint, setSelectedBlueprint] = useState(null);
-  const [chosenLang, setChosenLang] = useState('C++');
-  const [previewBlueprint, setPreviewBlueprint] = useState(null);
-  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [chosenLang, setChosenLang] = useState(() => localStorage.getItem('devtype_preferred_lang') || 'C++');
+
+  // ── Pagination State ──
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
 
   // Load server templates if available, merge with predefined blueprints
   useEffect(() => {
@@ -81,6 +94,10 @@ export default function Templates() {
         b.description.toLowerCase().includes(q) ||
         (b.languages || []).some((l) => l.toLowerCase().includes(q));
 
+      const matchesTrack =
+        selectedTrack === 'all' ||
+        b.track === selectedTrack;
+
       const matchesCat =
         selectedCategory === 'All' || b.category === selectedCategory;
 
@@ -92,9 +109,25 @@ export default function Templates() {
         selectedLanguage === 'All' ||
         (b.languages || []).includes(selectedLanguage);
 
-      return matchesSearch && matchesCat && matchesDiff && matchesLang;
+      return matchesSearch && matchesTrack && matchesCat && matchesDiff && matchesLang;
     });
-  }, [blueprints, searchQuery, selectedCategory, selectedDifficulty, selectedLanguage]);
+  }, [blueprints, searchQuery, selectedTrack, selectedCategory, selectedDifficulty, selectedLanguage]);
+
+  // Reset pagination to page 1 on filter or search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedTrack, selectedCategory, selectedDifficulty, selectedLanguage]);
+
+  // ── Pagination Computations ──
+  const totalItems = filteredBlueprints.length;
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedBlueprints = useMemo(() => {
+    if (pageSize === 'all') return filteredBlueprints;
+    const start = (safeCurrentPage - 1) * pageSize;
+    return filteredBlueprints.slice(start, start + pageSize);
+  }, [filteredBlueprints, safeCurrentPage, pageSize]);
 
   // Categorized Blueprints Map
   const categorizedBlueprints = useMemo(() => {
@@ -107,38 +140,68 @@ export default function Templates() {
     return map;
   }, [filteredBlueprints]);
 
+  // Lock body scroll when practice modal is open
+  useEffect(() => {
+    if (selectedBlueprint) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [selectedBlueprint]);
+
   const handleOpenPracticeModal = (blueprint) => {
+    const userPref = localStorage.getItem('devtype_preferred_lang') || 'C++';
     setSelectedBlueprint(blueprint);
-    setChosenLang(blueprint.languages?.[0] || 'C++');
+    const initialLang = blueprint.languages?.includes(userPref)
+      ? userPref
+      : blueprint.languages?.[0] || 'C++';
+    setChosenLang(initialLang);
   };
 
-  const handleStartPractice = () => {
-    if (!selectedBlueprint) return;
+  const launchPracticeForBlueprint = (blueprint, lang) => {
+    if (!blueprint) return;
+    const targetLang = lang || chosenLang || 'C++';
+    localStorage.setItem('devtype_preferred_lang', targetLang);
+
     const slug =
-      selectedBlueprint.slugs?.[chosenLang] ||
-      `${selectedBlueprint.key}-${chosenLang.toLowerCase().replace('+', 'p')}`;
+      blueprint.slugs?.[targetLang] ||
+      blueprint.slug ||
+      `${blueprint.key}-${targetLang.toLowerCase().replace('+', 'p')}`;
 
     const rawCode =
-      selectedBlueprint.codeByLanguage?.[chosenLang] ||
-      selectedBlueprint.codeSnippet ||
-      selectedBlueprint.code ||
+      blueprint.codeByLanguage?.[targetLang] ||
+      blueprint.codeSnippet ||
+      blueprint.code ||
       '';
 
-    navigate(`/practice?snippet=${slug}&lang=${encodeURIComponent(chosenLang)}&lockLang=true`, {
+    navigate(`/practice?snippet=${slug}&lang=${encodeURIComponent(targetLang)}&lockLang=true`, {
       state: {
         snippet: {
           id: slug,
           slug,
-          title: `${selectedBlueprint.title} (${chosenLang})`,
-          language: chosenLang,
-          difficulty: selectedBlueprint.difficulty,
+          title: `${blueprint.title} (${targetLang})`,
+          language: targetLang,
+          difficulty: blueprint.difficulty,
           code: rawCode,
           content: rawCode,
-          category: selectedBlueprint.category,
+          category: blueprint.category,
+          track: blueprint.track,
+          timeComplexity: blueprint.timeComplexity,
+          spaceComplexity: blueprint.spaceComplexity,
+          paradigm: blueprint.paradigm,
+          coreConcept: blueprint.coreConcept,
+          theory: blueprint.theory,
           isLanguageLocked: true,
         },
       },
     });
+  };
+
+  const handleStartPractice = () => {
+    if (!selectedBlueprint) return;
+    launchPracticeForBlueprint(selectedBlueprint, chosenLang);
   };
 
   return (
@@ -248,6 +311,24 @@ export default function Templates() {
 
       {/* ── Filter & Search Toolbar Inside a Card ── */}
       <div className="card" style={{ padding: '16px 20px' }}>
+        {/* Track Pills */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', marginRight: 4 }}>
+            Tracks:
+          </span>
+          {TRACKS.map((track) => (
+            <button
+              key={track.id}
+              type="button"
+              onClick={() => setSelectedTrack(track.id)}
+              className={`btn btn-xs ${selectedTrack === track.id ? 'btn-primary' : 'btn-secondary-glass'}`}
+              style={{ padding: '4px 10px', fontSize: '0.74rem' }}
+            >
+              {track.label}
+            </button>
+          ))}
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           {/* Search Box */}
           <div className="search-wrap" style={{ flex: 1, minWidth: 260, maxWidth: 440 }}>
@@ -330,15 +411,37 @@ export default function Templates() {
           </div>
         </div>
 
-        {/* Counter & Active Filter Tags */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--glass-border-sub)' }}>
-          <span style={{ fontSize: '0.76rem', color: 'var(--t3)', fontFamily: 'var(--font-mono)' }}>
-            Showing <strong>{filteredBlueprints.length}</strong> of {blueprints.length} blueprints
-          </span>
-          {(searchQuery || selectedCategory !== 'All' || selectedDifficulty !== 'All' || selectedLanguage !== 'All') && (
+        {/* Counter & Active Filter Tags & Page Size */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--glass-border-sub)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.76rem', color: 'var(--t3)', fontFamily: 'var(--font-mono)' }}>
+              Showing <strong>{totalItems === 0 ? 0 : (safeCurrentPage - 1) * (pageSize === 'all' ? totalItems : pageSize) + 1}–{pageSize === 'all' ? totalItems : Math.min(safeCurrentPage * pageSize, totalItems)}</strong> of <strong>{totalItems}</strong> matching blueprints ({blueprints.length} total)
+            </span>
+            {totalItems > 0 && viewMode === 'all' && (
+              <div className="reports-page-size-select" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor="top-page-size" style={{ fontSize: '0.72rem', color: 'var(--t3)' }}>Per page:</label>
+                <select
+                  id="top-page-size"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="reports-select-sm"
+                >
+                  <option value={12}>12</option>
+                  <option value={24}>24</option>
+                  <option value={48}>48</option>
+                  <option value="all">All ({totalItems})</option>
+                </select>
+              </div>
+            )}
+          </div>
+          {(searchQuery || selectedTrack !== 'all' || selectedCategory !== 'All' || selectedDifficulty !== 'All' || selectedLanguage !== 'All') && (
             <button
               onClick={() => {
                 setSearchQuery('');
+                setSelectedTrack('all');
                 setSelectedCategory('All');
                 setSelectedDifficulty('All');
                 setSelectedLanguage('All');
@@ -354,8 +457,9 @@ export default function Templates() {
 
       {/* ── Content View 1: Flat Grid ── */}
       {viewMode === 'all' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
-          {filteredBlueprints.map((item) => {
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 18 }}>
+            {paginatedBlueprints.map((item) => {
             const diffClass =
               item.difficulty === 'Beginner'
                 ? 'badge-teal'
@@ -383,6 +487,13 @@ export default function Templates() {
                     {item.description}
                   </p>
 
+                  {item.timeComplexity && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--brand)' }}>
+                      <Zap size={12} />
+                      <span>{item.timeComplexity}</span>
+                    </div>
+                  )}
+
                   {/* Language Badges */}
                   <div style={{ marginBottom: 18 }}>
                     <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', marginBottom: 6 }}>
@@ -405,15 +516,12 @@ export default function Templates() {
                 {/* Card Actions */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingTop: 14, borderTop: '1px solid var(--glass-border-sub)' }}>
                   <button
-                    onClick={() => {
-                      setPreviewBlueprint(item);
-                      setPreviewModalOpen(true);
-                    }}
+                    onClick={() => navigate(`/theory/${item.slug || item.key || item.id}`)}
                     className="btn btn-secondary-glass btn-sm"
                     style={{ flex: 1, justifyContent: 'center' }}
                   >
-                    <Eye size={13} />
-                    <span>Preview</span>
+                    <BookOpen size={13} />
+                    <span>Theory</span>
                   </button>
 
                   <button
@@ -429,7 +537,95 @@ export default function Templates() {
             );
           })}
         </div>
-      )}
+
+        {/* ── Pagination Bar ── */}
+        {totalItems > 0 && totalPages > 1 && (
+          <div className="reports-pagination-bar" style={{ marginTop: 24, borderRadius: 14, border: '1px solid var(--border-subtle)' }}>
+            <div className="reports-pagination-info">
+              <span>
+                Page <strong>{safeCurrentPage}</strong> of <strong>{totalPages}</strong>
+              </span>
+              <div className="reports-page-size-select">
+                <label htmlFor="bottom-page-size">Per page:</label>
+                <select
+                  id="bottom-page-size"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="reports-select-sm"
+                >
+                  <option value={12}>12</option>
+                  <option value={24}>24</option>
+                  <option value={48}>48</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="reports-pagination-controls">
+              <button
+                type="button"
+                className="pagination-btn"
+                onClick={() => {
+                  setCurrentPage((p) => Math.max(1, p - 1));
+                  window.scrollTo({ top: 320, behavior: 'smooth' });
+                }}
+                disabled={safeCurrentPage <= 1}
+                title="Previous Page"
+              >
+                <ChevronLeft size={14} />
+                <span>Prev</span>
+              </button>
+
+              <div className="pagination-pages-list">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((page) => {
+                    if (totalPages <= 7) return true;
+                    if (page === 1 || page === totalPages) return true;
+                    return Math.abs(page - safeCurrentPage) <= 1;
+                  })
+                  .map((page, idx, arr) => {
+                    const prevPage = arr[idx - 1];
+                    const hasGap = prevPage && page - prevPage > 1;
+
+                    return (
+                      <span key={page} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {hasGap && <span className="pagination-ellipsis">...</span>}
+                        <button
+                          type="button"
+                          className={`pagination-page-btn ${page === safeCurrentPage ? 'active' : ''}`}
+                          onClick={() => {
+                            setCurrentPage(page);
+                            window.scrollTo({ top: 320, behavior: 'smooth' });
+                          }}
+                        >
+                          {page}
+                        </button>
+                      </span>
+                    );
+                  })}
+              </div>
+
+              <button
+                type="button"
+                className="pagination-btn"
+                onClick={() => {
+                  setCurrentPage((p) => Math.min(totalPages, p + 1));
+                  window.scrollTo({ top: 320, behavior: 'smooth' });
+                }}
+                disabled={safeCurrentPage >= totalPages}
+                title="Next Page"
+              >
+                <span>Next</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    )}
 
       {/* ── Content View 2: Organized by Category ── */}
       {viewMode === 'categorized' && (
@@ -485,19 +681,23 @@ export default function Templates() {
                         <p style={{ fontSize: '0.78rem', color: 'var(--t2)', margin: '0 0 12px 0', lineHeight: 1.45 }}>
                           {item.description}
                         </p>
+
+                        {item.timeComplexity && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--brand)' }}>
+                            <Zap size={11} />
+                            <span>{item.timeComplexity}</span>
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
                         <button
-                          onClick={() => {
-                            setPreviewBlueprint(item);
-                            setPreviewModalOpen(true);
-                          }}
+                          onClick={() => navigate(`/theory/${item.slug || item.key || item.id}`)}
                           className="btn btn-secondary-glass btn-sm"
                           style={{ flex: 1, justifyContent: 'center', height: 30 }}
                         >
-                          <Eye size={12} />
-                          <span>Preview</span>
+                          <BookOpen size={12} />
+                          <span>Theory</span>
                         </button>
                         <button
                           onClick={() => handleOpenPracticeModal(item)}
@@ -517,144 +717,130 @@ export default function Templates() {
         </div>
       )}
 
-      {/* ── Language Selection Modal ── */}
-      {selectedBlueprint && (
-        <div className="devtype-modal-backdrop">
-          <div className="devtype-modal-box" style={{ maxWidth: 480 }}>
-            <div className="devtype-modal-header">
-              <div>
-                <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', color: 'var(--brand)', fontWeight: 700 }}>
-                  Select Practice Language
-                </span>
-                <h3 className="devtype-modal-title" style={{ marginTop: 2, fontSize: '1.15rem' }}>
-                  {selectedBlueprint.title}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedBlueprint(null)}
-                className="icon-btn"
-                style={{ width: 28, height: 28 }}
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="devtype-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 700, display: 'block', marginBottom: 8 }}>
-                  Choose Your Target Stack:
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                  {(selectedBlueprint.languages || []).map((lang) => (
-                    <button
-                      key={lang}
-                      type="button"
-                      onClick={() => setChosenLang(lang)}
-                      className={`btn ${chosenLang === lang ? 'btn-primary' : 'btn-secondary-glass'}`}
-                      style={{ justifyContent: 'space-between', padding: '10px 14px' }}
-                    >
-                      <span>{lang}</span>
-                      {chosenLang === lang && <CheckCircle2 size={16} />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Language Lock Warning */}
-              <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(217, 119, 6, 0.10)', border: '1px solid rgba(217, 119, 6, 0.25)', display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', color: '#D97706', lineHeight: 1.45 }}>
-                <Lock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+      {/* ── Language Selection Modal (Portaled directly to document.body for instant center alignment) ── */}
+      {selectedBlueprint &&
+        createPortal(
+          <div className="devtype-modal-backdrop" onClick={() => setSelectedBlueprint(null)}>
+            <div
+              className="devtype-modal-box"
+              style={{ maxWidth: 480 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="devtype-modal-header">
                 <div>
-                  <strong style={{ display: 'block', fontWeight: 700 }}>Strict Language Focus</strong>
-                  Once practice begins, the drill will be locked in {chosenLang} to ensure continuous motor memory development.
+                  <span
+                    style={{
+                      fontSize: '0.68rem',
+                      fontFamily: 'var(--font-mono)',
+                      textTransform: 'uppercase',
+                      color: 'var(--brand)',
+                      fontWeight: 700,
+                    }}
+                  >
+                    Select Practice Language
+                  </span>
+                  <h3 className="devtype-modal-title" style={{ marginTop: 2, fontSize: '1.15rem' }}>
+                    {selectedBlueprint.title}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setSelectedBlueprint(null)}
+                  className="icon-btn"
+                  style={{ width: 28, height: 28 }}
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div
+                className="devtype-modal-body"
+                style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+              >
+                <div>
+                  <label
+                    style={{
+                      fontSize: '0.75rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--t3)',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      display: 'block',
+                      marginBottom: 8,
+                    }}
+                  >
+                    Choose Your Target Stack:
+                  </label>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: 8,
+                    }}
+                  >
+                    {(selectedBlueprint.languages || []).map((lang) => (
+                      <button
+                        key={lang}
+                        type="button"
+                        onClick={() => setChosenLang(lang)}
+                        className={`btn ${
+                          chosenLang === lang ? 'btn-primary' : 'btn-secondary-glass'
+                        }`}
+                        style={{
+                          justifyContent: 'space-between',
+                          padding: '10px 14px',
+                        }}
+                      >
+                        <span>{lang}</span>
+                        {chosenLang === lang && <CheckCircle2 size={16} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Language Lock Warning */}
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    background: 'rgba(217, 119, 6, 0.10)',
+                    border: '1px solid rgba(217, 119, 6, 0.25)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    fontSize: '0.78rem',
+                    color: '#D97706',
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <Lock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <strong style={{ display: 'block', fontWeight: 700 }}>
+                      Strict Language Focus
+                    </strong>
+                    Once practice begins, the drill will be locked in {chosenLang} to ensure
+                    continuous motor memory development.
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="devtype-modal-footer">
-              <button
-                onClick={() => setSelectedBlueprint(null)}
-                className="btn btn-ghost btn-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleStartPractice}
-                className="btn btn-primary btn-sm"
-              >
-                <Play size={12} fill="currentColor" strokeWidth={0} />
-                <span>Begin Practice in {chosenLang}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Code Preview Modal ── */}
-      {previewModalOpen && previewBlueprint && (
-        <div className="devtype-modal-backdrop">
-          <div className="devtype-modal-box" style={{ maxWidth: 640 }}>
-            <div className="devtype-modal-header">
-              <div>
-                <span className="badge badge-teal" style={{ marginBottom: 4 }}>
-                  {previewBlueprint.category} &bull; {previewBlueprint.difficulty}
-                </span>
-                <h3 className="devtype-modal-title" style={{ fontSize: '1.2rem' }}>
-                  {previewBlueprint.title}
-                </h3>
-              </div>
-              <button
-                onClick={() => setPreviewModalOpen(false)}
-                className="icon-btn"
-                style={{ width: 28, height: 28 }}
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="devtype-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <p style={{ fontSize: '0.84rem', color: 'var(--t2)', margin: 0, lineHeight: 1.5 }}>
-                {previewBlueprint.description}
-              </p>
-
-              {/* Code preview block */}
-              <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--glass-border)', background: 'var(--code-bg, #0F172A)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: '#94A3B8' }}>
-                    Reference Blueprint Implementation
-                  </span>
-                  <span style={{ fontSize: '0.7rem', color: '#38BDF8', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                    {previewBlueprint.languages?.[0] || 'Code'}
-                  </span>
-                </div>
-                <pre style={{ margin: 0, padding: 16, fontFamily: 'var(--font-mono)', fontSize: '0.84rem', color: '#F8FAFC', overflowX: 'auto', lineHeight: 1.55 }}>
-                  {Object.values(previewBlueprint.codeByLanguage || {})[0] || previewBlueprint.codeSnippet || previewBlueprint.code || '// No code preview available'}
-                </pre>
+              <div className="devtype-modal-footer">
+                <button
+                  onClick={() => setSelectedBlueprint(null)}
+                  className="btn btn-ghost btn-sm"
+                >
+                  Cancel
+                </button>
+                <button onClick={handleStartPractice} className="btn btn-primary btn-sm">
+                  <Play size={12} fill="currentColor" strokeWidth={0} />
+                  <span>Begin Practice in {chosenLang}</span>
+                </button>
               </div>
             </div>
+          </div>,
+          document.body
+        )}
 
-            <div className="devtype-modal-footer">
-              <button
-                onClick={() => setPreviewModalOpen(false)}
-                className="btn btn-ghost btn-sm"
-              >
-                Close Preview
-              </button>
-              <button
-                onClick={() => {
-                  setPreviewModalOpen(false);
-                  handleOpenPracticeModal(previewBlueprint);
-                }}
-                className="btn btn-primary btn-sm"
-              >
-                <Play size={12} fill="currentColor" strokeWidth={0} />
-                <span>Select Stack &amp; Practice</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

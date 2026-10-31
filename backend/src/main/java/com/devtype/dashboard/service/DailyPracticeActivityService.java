@@ -87,8 +87,14 @@ public class DailyPracticeActivityService {
     public StreakResult calculateStreaks(Long userId) {
         List<DailyPracticeActivity> activities = dailyPracticeActivityRepository
                 .findByUserIdOrderByActivityDateAsc(userId);
+        return calculateStreaksFromActivities(activities);
+    }
 
-        if (activities.isEmpty()) {
+    /**
+     * Internal helper to compute streaks in memory from a pre-fetched activities list.
+     */
+    public StreakResult calculateStreaksFromActivities(List<DailyPracticeActivity> activities) {
+        if (activities == null || activities.isEmpty()) {
             return new StreakResult(0, 0);
         }
 
@@ -170,6 +176,34 @@ public class DailyPracticeActivityService {
                 .toList();
     }
 
+    /**
+     * Single roundtrip eager fetch retrieving both streaks and heatmap points together.
+     */
+    @Transactional(readOnly = true)
+    public StreakAndHeatmapResult getStreaksAndHeatmap(Long userId, int year) {
+        List<DailyPracticeActivity> activities = dailyPracticeActivityRepository
+                .findByUserIdOrderByActivityDateAsc(userId);
+
+        StreakResult streaks = calculateStreaksFromActivities(activities);
+
+        LocalDate startOfYear = LocalDate.of(year, 1, 1);
+        LocalDate endOfYear = LocalDate.of(year, 12, 31);
+        List<DailyActivityPointResponse> heatmap = activities.stream()
+                .filter(a -> a.getActivityDate() != null && !a.getActivityDate().isBefore(startOfYear) && !a.getActivityDate().isAfter(endOfYear))
+                .map(a -> new DailyActivityPointResponse(
+                        a.getActivityDate(),
+                        a.getSessionCount(),
+                        a.getTotalPracticeSeconds(),
+                        a.getTotalCharacters()
+                ))
+                .toList();
+
+        return new StreakAndHeatmapResult(streaks, heatmap);
+    }
+
     public record StreakResult(int currentStreak, int bestStreak) {
+    }
+
+    public record StreakAndHeatmapResult(StreakResult streaks, List<DailyActivityPointResponse> heatmap) {
     }
 }

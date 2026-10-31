@@ -33,30 +33,6 @@ export default function NotificationPopover({ onClose }) {
     }
   };
 
-  const handleSendTest = () => {
-    const sampleTypes = [
-      {
-        type: 'achievement',
-        title: 'Achievement Unlocked: Rapid Fire',
-        message: 'Achieved 100+ WPM cadence during high-velocity syntax practice.',
-        link: '/achievements',
-      },
-      {
-        type: 'srs',
-        title: 'SRS Recall Queue Alert',
-        message: '3 algorithmic memory cards are due for SM-2 review today.',
-        link: '/revision',
-      },
-      {
-        type: 'system',
-        title: 'Speed Milestone Recorded',
-        message: 'Your 7-day velocity average has increased by +14 WPM!',
-        link: '/reports',
-      },
-    ];
-    const pick = sampleTypes[Math.floor(Math.random() * sampleTypes.length)];
-    addNotification(pick);
-  };
 
   return (
     <div className="notif-popover" role="dialog" aria-label="Notifications Center">
@@ -131,19 +107,9 @@ export default function NotificationPopover({ onClose }) {
         )}
       </div>
 
-      {/* Popover Footer with Test Trigger & Clear */}
-      <div className="notif-popover-ft">
-        <button
-          type="button"
-          className="notif-action-btn notif-btn-test"
-          onClick={handleSendTest}
-          title="Simulate a new notification and toast"
-        >
-          <PlusCircle size={13} />
-          <span>Simulate Notification</span>
-        </button>
-
-        {notifications.length > 0 && (
+      {/* Popover Footer with Clear */}
+      {notifications.length > 0 && (
+        <div className="notif-popover-ft" style={{ justifyContent: 'flex-end' }}>
           <button
             type="button"
             className="notif-action-btn notif-btn-clear"
@@ -151,10 +117,10 @@ export default function NotificationPopover({ onClose }) {
             title="Clear all notifications"
           >
             <Trash2 size={13} />
-            <span>Clear</span>
+            <span>Clear All</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

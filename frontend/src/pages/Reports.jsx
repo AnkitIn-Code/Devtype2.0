@@ -32,11 +32,14 @@ import {
   computeProgressionTimeline,
   exportSessionsToCsv,
 } from '../utils/reportStore';
+import { dataCache } from '../services/dataCache';
+import { mergeSessions } from '../utils/sessionSync';
 
 /* ================================================================
    DATE FILTER OPTIONS
    ================================================================ */
 const DATE_RANGES = [
+  { id: 'today', label: 'Today' },
   { id: '7d', label: '7 Days' },
   { id: '30d', label: '30 Days' },
   { id: '90d', label: '90 Days' },
@@ -166,7 +169,7 @@ function AnalyticsStatCard({ icon: Icon, tone, label, value, sub, tag }) {
 /* ================================================================
    AUTHENTIC EMPTY STATE COMPONENT
    ================================================================ */
-function ReportsEmptyState({ username, onStartPractice, onResetDemo }) {
+function ReportsEmptyState({ username, onStartPractice }) {
   return (
     <div className="reports-empty-card">
       <div className="reports-empty-icon-wrap">
@@ -189,15 +192,6 @@ function ReportsEmptyState({ username, onStartPractice, onResetDemo }) {
           <Play size={13} fill="currentColor" strokeWidth={0} />
           <span>Start First Session</span>
         </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          onClick={onResetDemo}
-          id="btn-empty-load-demo"
-        >
-          <Sparkles size={13} />
-          <span>Preview Benchmark Sample</span>
-        </button>
       </div>
     </div>
   );
@@ -210,10 +204,10 @@ export default function Reports() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // ── Dataset Selection State ──
-  const [serverSessions, setServerSessions] = useState([]);
+  // ── Dataset Selection State with Synchronous Eager Hydration ──
+  const cachedSess = useMemo(() => dataCache.getSessions(user?.id) || [], [user?.id]);
+  const [serverSessions, setServerSessions] = useState(() => cachedSess);
   const [localSessions, setLocalSessions] = useState(() => getSavedSessions(user?.id));
-  const [useDemoData, setUseDemoData] = useState(false);
   const [selectedRange, setSelectedRange] = useState('30d');
   const [chartSeriesMode, setChartSeriesMode] = useState('both'); // 'both' | 'wpm' | 'acc'
   const [tableSearch, setTableSearch] = useState('');
@@ -223,18 +217,13 @@ export default function Reports() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Re-read local sessions whenever active user changes
-  useEffect(() => {
+  // Sync sessions from authenticated backend API and local store
+  const fetchSessions = useCallback(() => {
     setLocalSessions(getSavedSessions(user?.id));
-  }, [user?.id]);
-
-  // Sync sessions from authenticated backend API
-  useEffect(() => {
-    let mounted = true;
     practiceService
       .getUserSessions({ page: 0, size: 100, sort: 'completedAt,desc' })
       .then((res) => {
-        if (!mounted || !res?.items) return;
+        if (!res?.items) return;
         const normalized = res.items
           .filter((s) => s.status === 'COMPLETED')
           .map((s) => ({
@@ -255,50 +244,33 @@ export default function Reports() {
 
         if (normalized.length > 0) {
           setServerSessions(normalized);
+          dataCache.setSessions(user?.id, normalized);
         }
       })
       .catch((err) => {
         console.warn('Could not sync user sessions from backend:', err);
       });
-
-    return () => {
-      mounted = false;
-    };
   }, [user?.id]);
 
-  // ── Merge Server & Local Sessions (Prioritizing local enriched keystroke telemetry) ──
+  useEffect(() => {
+    fetchSessions();
+    const handleSessionCompleted = () => fetchSessions();
+    const handleCacheRevalidated = () => {
+      const fresh = dataCache.getSessions(user?.id);
+      if (fresh && fresh.length > 0) setServerSessions(fresh);
+    };
+    window.addEventListener('devtype_session_completed', handleSessionCompleted);
+    window.addEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+    return () => {
+      window.removeEventListener('devtype_session_completed', handleSessionCompleted);
+      window.removeEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+    };
+  }, [fetchSessions, user?.id]);
+
+  // ── Merge Server & Local Sessions consistently ──
   const rawSessions = useMemo(() => {
-    if (useDemoData) return getSessions({ forceDemo: true });
-
-    const local = localSessions || [];
-    const server = serverSessions || [];
-
-    // Map by id or date to deduplicate and preserve detailed local telemetry
-    const mergedMap = new Map();
-
-    server.forEach((s) => {
-      mergedMap.set(s.id, s);
-    });
-
-    local.forEach((s) => {
-      const existing = mergedMap.get(s.id);
-      if (existing) {
-        mergedMap.set(s.id, {
-          ...existing,
-          ...s,
-          keyErrorMap: s.keyErrorMap || existing.keyErrorMap,
-          errorLocations: s.errorLocations || existing.errorLocations,
-          code: s.code || existing.code,
-        });
-      } else {
-        mergedMap.set(s.id, s);
-      }
-    });
-
-    const list = Array.from(mergedMap.values());
-    list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return list;
-  }, [useDemoData, localSessions, serverSessions]);
+    return mergeSessions(serverSessions, localSessions);
+  }, [localSessions, serverSessions]);
 
   const hasRealSessions = rawSessions.length > 0;
 
@@ -318,24 +290,24 @@ export default function Reports() {
   }, [filteredSessions]);
 
   const languageProficiency = useMemo(() => {
-    return computeLanguageProficiency(filteredSessions);
-  }, [filteredSessions]);
+    return computeLanguageProficiency(rawSessions);
+  }, [rawSessions]);
 
   const dayDistribution = useMemo(() => {
-    return computeDayDistribution(filteredSessions);
-  }, [filteredSessions]);
+    return computeDayDistribution(rawSessions);
+  }, [rawSessions]);
 
-  // ── Table Search Filter ──
+  // ── Table Search Filter (Full session history across all time) ──
   const displayTableSessions = useMemo(() => {
-    if (!tableSearch.trim()) return filteredSessions;
+    if (!tableSearch.trim()) return rawSessions;
     const q = tableSearch.toLowerCase().trim();
-    return filteredSessions.filter((s) => {
+    return rawSessions.filter((s) => {
       const title = (s.snippetTitle || s.title || '').toLowerCase();
       const lang = (s.language || '').toLowerCase();
       const diff = (s.difficulty || '').toLowerCase();
       return title.includes(q) || lang.includes(q) || diff.includes(q);
     });
-  }, [filteredSessions, tableSearch]);
+  }, [rawSessions, tableSearch]);
 
   // Reset pagination to page 1 on filter or search changes
   useEffect(() => {
@@ -435,32 +407,6 @@ export default function Reports() {
 
         {/* Header Action Tools */}
         <div className="tpl-header-actions reports-header-actions">
-          {/* Dataset Source Toggle */}
-          <div className="reports-dataset-pill">
-            <button
-              type="button"
-              className={`reports-dataset-btn ${!useDemoData ? 'active' : ''}`}
-              onClick={() => setUseDemoData(false)}
-              title="View your authentic logged practice history"
-              id="btn-source-my-data"
-            >
-              <span>{user?.username ? `@${user.username}` : 'My Profile'}</span>
-              {hasRealSessions && (
-                <span className="reports-pill-count">{rawSessions.length}</span>
-              )}
-            </button>
-            <button
-              type="button"
-              className={`reports-dataset-btn ${useDemoData ? 'active' : ''}`}
-              onClick={() => setUseDemoData(true)}
-              title="Preview sample benchmark dataset"
-              id="btn-source-demo-data"
-            >
-              <Sparkles size={12} className="reports-spark-icon" />
-              <span>Sample Demo</span>
-            </button>
-          </div>
-
           {/* Refresh Action */}
           <button
             type="button"
@@ -509,19 +455,12 @@ export default function Reports() {
         </div>
 
         <div className="reports-meta-status">
-          {useDemoData ? (
-            <div className="reports-status-indicator demo">
-              <span className="status-ping" />
-              <span>Previewing sample benchmark dataset (24 demo sessions)</span>
-            </div>
-          ) : (
-            <div className="reports-status-indicator live">
-              <span className="status-ping live" />
-              <span>
-                Authentic profile history ({filteredSessions.length} of {rawSessions.length} sessions in range)
-              </span>
-            </div>
-          )}
+          <div className="reports-status-indicator live">
+            <span className="status-ping live" />
+            <span>
+              Authentic telemetry ({filteredSessions.length} of {rawSessions.length} sessions in range)
+            </span>
+          </div>
         </div>
       </div>
 
@@ -530,7 +469,6 @@ export default function Reports() {
         <ReportsEmptyState
           username={user?.username}
           onStartPractice={() => navigate('/templates')}
-          onResetDemo={() => setUseDemoData(true)}
         />
       ) : (
         <>
@@ -660,7 +598,7 @@ export default function Reports() {
                       <YAxis
                         yAxisId="acc"
                         orientation="right"
-                        domain={[80, 100]}
+                        domain={[0, 100]}
                         stroke="#64748B"
                         tick={{ fill: '#64748B', fontSize: 11 }}
                         tickLine={false}

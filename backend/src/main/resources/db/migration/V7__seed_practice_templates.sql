@@ -468,5 +468,5 @@ ORDER BY language, rank_position;',
     CURRENT_TIMESTAMP,
     NULL,
     FALSE
-)
-ON CONFLICT (slug) DO NOTHING;
+);
+

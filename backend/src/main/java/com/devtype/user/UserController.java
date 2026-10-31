@@ -71,4 +71,11 @@ public class UserController {
         com.devtype.user.dto.UserPreferencesResponse updated = userService.updateUserPreferences(authenticatedUserId, request);
         return ResponseEntity.ok(ApiResponse.success(updated, "User preferences updated successfully"));
     }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/me")
+    public ResponseEntity<ApiResponse<Void>> deleteAccount() {
+        Long authenticatedUserId = SecurityUtils.getRequiredCurrentUserId();
+        userService.deleteCurrentUser(authenticatedUserId);
+        return ResponseEntity.ok(ApiResponse.success(null, "Account successfully deleted"));
+    }
 }

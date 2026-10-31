@@ -145,4 +145,35 @@ export const authService = {
     this.removeToken();
     this.removeStoredUser();
   },
+
+  /**
+   * Permanently deletes the authenticated user account and purges local storage.
+   * Backend endpoint: DELETE /api/v1/users/me
+   */
+  async deleteAccount() {
+    await apiFetch('/api/v1/users/me', {
+      method: 'DELETE',
+    });
+
+    const storedUser = this.getStoredUser();
+    const userId = storedUser?.id;
+
+    this.logout();
+
+    // Clean up user-specific localStorage keys
+    try {
+      if (userId) {
+        localStorage.removeItem(`devtype_sessions_${userId}`);
+        localStorage.removeItem(`devtype_friends_${userId}`);
+        localStorage.removeItem(`devtype_following_${userId}`);
+      }
+      localStorage.removeItem('devtype_sessions');
+      localStorage.removeItem('devtype_preferred_lang');
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('devtype_account_deleted'));
+      window.dispatchEvent(new CustomEvent('devtype_session_completed'));
+    }
+  },
 };

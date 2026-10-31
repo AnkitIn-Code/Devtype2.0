@@ -1,34 +1,40 @@
 // src/pages/Leaderboard.jsx
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Trophy, Medal, Crown, Award, Swords,
-  Search, X, RotateCcw, ChevronLeft, ChevronRight,
-  ArrowRight, Shield, Zap, TrendingUp, Users, Play,
-  Sparkles, Check, Flame
+  Search, X, ChevronLeft, ChevronRight,
+  Shield, TrendingUp, TrendingDown, Users,
+  Check, Flame, AlertCircle, RefreshCw,
+  Clock, ArrowUpRight
 } from 'lucide-react';
 
+import { apiFetch } from '../services/api';
+import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
+import { leaderboardService } from '../services/leaderboardService';
+import { dataCache } from '../services/dataCache';
 import {
-  getUserEloData,
-  getTierForRating,
-  COMPETITIVE_LEADERBOARD_ROSTER,
-  ELO_EVENT_NAME
+  BGMI_TIER_ORDER,
+  BGMI_TIER_CONFIG,
+  getTierGroup,
+  getBgmiTierVisuals
 } from '../utils/eloRatingStore';
-import { getStoredFriends } from '../data/profileStore';
 
-const TIER_FILTERS = [
+const TIER_FILTER_OPTIONS = [
   { id: 'all', label: 'All Tiers' },
-  { id: 'Grandmaster', label: 'Grandmaster (2400+)' },
-  { id: 'Master', label: 'Master (2000+)' },
-  { id: 'Diamond', label: 'Diamond (1800+)' },
-  { id: 'Gold', label: 'Gold (1500+)' },
-  { id: 'Silver', label: 'Silver (1200+)' },
-  { id: 'Bronze', label: 'Bronze (<1200)' },
+  { id: 'Conqueror', label: 'Conqueror' },
+  { id: 'Ace', label: 'Ace / Dominator (4200+)' },
+  { id: 'Crown', label: 'Crown I–V (3500–4199)' },
+  { id: 'Diamond', label: 'Diamond I–V (3000–3499)' },
+  { id: 'Platinum', label: 'Platinum I–V (2500–2999)' },
+  { id: 'Gold', label: 'Gold I–V (2000–2499)' },
+  { id: 'Silver', label: 'Silver I–V (1500–1999)' },
+  { id: 'Bronze', label: 'Bronze I–V (1000–1499)' },
 ];
 
 /* ================================================================
-   TOP-3 PODIUM CARD (CHESS-STYLE ELO LADDER)
+   1. PODIUM CARD FOR TOP 3 (GOLD / SILVER / BRONZE)
    ================================================================ */
 function TopPodiumCard({ dev, place }) {
   const navigate = useNavigate();
@@ -36,7 +42,7 @@ function TopPodiumCard({ dev, place }) {
 
   const isFirst = place === 1;
   const isSecond = place === 2;
-  const tier = getTierForRating(dev.rating);
+  const tierVisuals = getBgmiTierVisuals(dev.seasonTier);
 
   const config = isFirst
     ? {
@@ -47,94 +53,93 @@ function TopPodiumCard({ dev, place }) {
       }
     : isSecond
     ? {
-        label: '2nd Place',
+        label: '2nd Place · Runner-Up',
         badgeClass: 'podium-badge-silver',
         icon: Medal,
         crownColor: '#94A3B8',
       }
     : {
-        label: '3rd Place',
+        label: '3rd Place · Bronze',
         badgeClass: 'podium-badge-bronze',
         icon: Award,
         crownColor: '#D97706',
       };
 
   const IconComp = config.icon;
-  const totalMatches = (dev.wins || 0) + (dev.losses || 0);
-  const winRate = totalMatches > 0 ? Math.round((dev.wins / totalMatches) * 100) : 0;
+  const totalMatches = dev.matchesPlayed || (dev.wins || 0) + (dev.losses || 0);
+  const winRate = totalMatches > 0 ? Math.round(((dev.wins || 0) / totalMatches) * 100) : 0;
 
   return (
     <div
-      className={`card top-podium-card ${
-        isFirst ? 'podium-rank-1' : isSecond ? 'podium-rank-2' : 'podium-rank-3'
-      } ${dev.isCurrentUser ? 'podium-current-user' : ''}`}
+      className={`lb-podium-card rank-${place} ${dev.isCurrentUser ? 'podium-current-user' : ''}`}
     >
-      {/* Top Header: Rank & Tier badge */}
-      <div className="top-podium-header">
-        <span className={`podium-pill ${config.badgeClass}`}>
-          <IconComp size={13} />
-          <span>{config.label}</span>
-        </span>
-        <span
-          className="podium-tier-pill"
-          style={{
-            backgroundColor: tier.bg,
-            color: tier.color,
-            borderColor: tier.border,
-          }}
-        >
-          {tier.icon} {tier.name}
-        </span>
-      </div>
+      {/* Top Header Tag */}
+      <span className="lb-podium-rank-tag">
+        <IconComp size={13} />
+        <span>{config.label}</span>
+      </span>
 
-      {/* Avatar Section */}
-      <div className="top-podium-avatar-section">
+      {/* Avatar with Halo */}
+      <div className="lb-podium-avatar-wrap">
         {isFirst && (
-          <div className="podium-crown-halo" title="Rank 1 Champion">
-            <Crown size={22} color="#F59E0B" fill="#F59E0B" />
+          <div className="lb-podium-crown" title="Rank 1 Active Champion">
+            <Crown size={28} color="#F59E0B" fill="#F59E0B" />
           </div>
         )}
         <div
-          className="top-podium-avatar"
+          className="lb-podium-avatar"
           style={{
-            background: dev.avatarBg || '#2563EB',
-            boxShadow: `0 0 0 3px var(--bg-surface), 0 0 0 5px ${config.crownColor}55`,
+            background: dev.avatarBg || 'linear-gradient(135deg, #2563EB, #1D4ED8)',
           }}
         >
-          {dev.avatar}
+          {dev.avatar || (dev.name || 'U').slice(0, 2).toUpperCase()}
         </div>
-        {dev.isCurrentUser && <span className="podium-you-tag">YOU</span>}
       </div>
 
-      {/* Identity */}
-      <div className="top-podium-ident">
-        <h3 className="podium-display-name">{dev.displayName}</h3>
-        <span className="podium-username">@{dev.name}</span>
+      {/* Name and Username */}
+      <h3 className="lb-podium-name" title={dev.name}>{dev.name}</h3>
+      <span className="lb-podium-username">@{dev.username}</span>
+
+      {/* Season Tier Badge */}
+      <div
+        className="bgmi-tier-badge"
+        style={{
+          color: tierVisuals.color,
+          backgroundColor: tierVisuals.bg,
+          border: `1px solid ${tierVisuals.border}`,
+        }}
+      >
+        <span>{tierVisuals.icon}</span>
+        <span>{dev.seasonTier || 'Bronze V'}</span>
       </div>
 
-      {/* Primary Score: ELO RATING */}
-      <div className="podium-score-block">
-        <span className="podium-score-val">{dev.rating.toLocaleString()}</span>
-        <span className="podium-score-unit">ELO RATING</span>
+      {/* Primary Score: Rating */}
+      <div className="lb-podium-score-box">
+        <div className="lb-podium-score-num">
+          {(dev.rating || 1200).toLocaleString()}
+        </div>
+        <div className="lb-podium-score-label">Points · ELO Rating</div>
       </div>
 
-      {/* Sub-stats Row */}
-      <div className="podium-substats-row">
-        <div className="podium-substat">
-          <span className="substat-label">Win Rate</span>
-          <span className="substat-val">{winRate}%</span>
+      {/* Sub-stats: Peak Rating & Last Match Points */}
+      <div className="lb-podium-stats-row">
+        <div className="lb-podium-stat-item">
+          <span className="lb-podium-stat-label">Peak Rating</span>
+          <span className="lb-podium-stat-val">{dev.peakRating || dev.rating || 1200}</span>
         </div>
         <div className="podium-substat-divider" />
-        <div className="podium-substat">
-          <span className="substat-label">W / L</span>
-          <span className="substat-val">
-            {dev.wins}W - {dev.losses}L
+        <div className="lb-podium-stat-item">
+          <span className="lb-podium-stat-label">Last Points</span>
+          <span
+            className="lb-podium-stat-val"
+            style={{
+              color: dev.lastMatchPoints != null && dev.lastMatchPoints > 0 ? '#10B981' : dev.lastMatchPoints != null && dev.lastMatchPoints < 0 ? '#EF4444' : 'inherit',
+              fontWeight: 800,
+              fontFamily: 'var(--font-mono)'
+            }}
+          >
+            {dev.lastMatchPoints != null ? (dev.lastMatchPoints > 0 ? `+${dev.lastMatchPoints} pts` : `${dev.lastMatchPoints} pts`) : '—'}
           </span>
-        </div>
-        <div className="podium-substat-divider" />
-        <div className="podium-substat">
-          <span className="substat-label">Peak ELO</span>
-          <span className="substat-val">{dev.peakRating || dev.rating}</span>
         </div>
       </div>
 
@@ -142,10 +147,11 @@ function TopPodiumCard({ dev, place }) {
         <button
           type="button"
           className="btn btn-ghost btn-xs podium-challenge-btn"
+          style={{ marginTop: '14px' }}
           onClick={() => navigate('/multiplayer')}
         >
           <Swords size={12} />
-          <span>Challenge</span>
+          <span>Challenge In 1v1</span>
         </button>
       )}
     </div>
@@ -153,133 +159,204 @@ function TopPodiumCard({ dev, place }) {
 }
 
 /* ================================================================
-   MAIN COMPETITIVE MULTIPLAYER LEADERBOARD
+   MAIN PAGE COMPONENT
    ================================================================ */
 export default function Leaderboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { addNotification } = useNotifications();
 
+  // Page Subview: 'leaderboard' or 'my-rank'
+  const [activeTab, setActiveTab] = useState('leaderboard');
+
+  // Filters & Search
   const [selectedTier, setSelectedTier] = useState('all');
-  const [scope, setScope] = useState('global'); // 'global' | 'friends'
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('rating'); // 'rating' | 'peak' | 'wins' | 'winrate'
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
-  const [userElo, setUserElo] = useState(() => getUserEloData());
-  const [friendsData, setFriendsData] = useState(() => getStoredFriends(user?.id));
+  // Eager Loading State from Cache
+  const cachedLb = dataCache.getLeaderboard(selectedTier);
+  const cachedSeason = dataCache.getSeasonInfo();
+  const cachedMyRank = dataCache.getMyRank(user?.id);
+  const cachedTierConfig = dataCache.getTierConfig();
+
+  const [tierConfiguration, setTierConfiguration] = useState(() => cachedTierConfig || null);
+  const [leaderboardData, setLeaderboardData] = useState(() => cachedLb || []);
+  const [seasonInfo, setSeasonInfo] = useState(() => cachedSeason || null);
+  const [myRankData, setMyRankData] = useState(() => cachedMyRank || null);
+  const [isLoading, setIsLoading] = useState(() => !cachedLb || cachedLb.length === 0);
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    if (!tierConfiguration) {
+      apiFetch('/api/v1/leaderboard/tiers')
+        .then((tc) => {
+          if (tc) {
+            setTierConfiguration(tc);
+            dataCache.setTierConfig(tc);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [tierConfiguration]);
+
+  useEffect(() => {
+    if (!seasonInfo || !user?.id) return;
+    const prefix = `devtype_season_notice_${user.id}_`;
+    try {
+      const previous = localStorage.getItem(`${prefix}active`);
+      if (previous && previous !== String(seasonInfo.seasonNumber))
+        addNotification({ title: 'New ranked season', message: `${seasonInfo.seasonName} is active. Your tier reset is complete.`, link: '/leaderboard' });
+      localStorage.setItem(`${prefix}active`, String(seasonInfo.seasonNumber));
+      const warningKey = `${prefix}${seasonInfo.seasonNumber}_ending`;
+      if (seasonInfo.daysRemaining <= 3 && !localStorage.getItem(warningKey)) {
+        addNotification({ title: 'Ranked season ending', message: seasonInfo.daysRemaining === 0 ? 'The season is ending. Final standings and resets will be processed by the server.' : `${seasonInfo.daysRemaining} days remain in ${seasonInfo.seasonName}.`, link: '/leaderboard' });
+        localStorage.setItem(warningKey, 'shown');
+      }
+    } catch { /* Notifications remain optional when browser storage is disabled. */ }
+  }, [seasonInfo, user?.id, addNotification]);
+
   const userRowRef = useRef(null);
 
-  // Sync ELO on storage and custom event updates
+  // Fetch real authoritative data directly from backend database with silent background revalidation
+  const fetchData = useCallback(async () => {
+    const existing = dataCache.getLeaderboard(selectedTier);
+    if (!existing || existing.length === 0) {
+      setIsLoading(true);
+    }
+    try {
+      const [lb, sInfo, myRank] = await Promise.all([
+        leaderboardService.getLeaderboard(selectedTier),
+        leaderboardService.getSeasonInfo(),
+        leaderboardService.getMyRank(),
+      ]);
+
+      if (lb && lb.length > 0) {
+        setLeaderboardData(lb);
+        dataCache.setLeaderboard(selectedTier, lb);
+        setIsOffline(false);
+      } else if (!sInfo && (!lb || lb.length === 0)) {
+        if (!existing || existing.length === 0) {
+          setLeaderboardData([]);
+          setIsOffline(true);
+        }
+      } else {
+        setLeaderboardData(lb || []);
+        dataCache.setLeaderboard(selectedTier, lb || []);
+        setIsOffline(false);
+      }
+
+      if (sInfo) {
+        setSeasonInfo(sInfo);
+        dataCache.setSeasonInfo(sInfo);
+      }
+      if (myRank) {
+        setMyRankData(myRank);
+        dataCache.setMyRank(user?.id, myRank);
+      }
+    } catch (err) {
+      console.warn('Backend unavailable, real database data could not be fetched:', err);
+      if (!existing || existing.length === 0) {
+        setIsOffline(true);
+        setLeaderboardData([]);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedTier, user?.id]);
+
   useEffect(() => {
-    const handleEloSync = () => {
-      setUserElo(getUserEloData());
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) fetchData();
+    });
+    const refresh = setInterval(fetchData, 6000);
+    const handleSync = () => {
+      if (active) fetchData();
     };
-    window.addEventListener(ELO_EVENT_NAME, handleEloSync);
-    window.addEventListener('storage', handleEloSync);
+    const handleStorage = (e) => {
+      if (e.key === 'devtype_last_rating_update' || e.key === 'devtype_elo_user') {
+        if (active) fetchData();
+      }
+    };
+    const handleRevalidate = () => {
+      if (!active) return;
+      const freshLb = dataCache.getLeaderboard(selectedTier);
+      if (freshLb && freshLb.length > 0) setLeaderboardData(freshLb);
+      const freshSeason = dataCache.getSeasonInfo();
+      if (freshSeason) setSeasonInfo(freshSeason);
+      const freshMyRank = dataCache.getMyRank(user?.id);
+      if (freshMyRank) setMyRankData(freshMyRank);
+      const freshTiers = dataCache.getTierConfig();
+      if (freshTiers) setTierConfiguration(freshTiers);
+      setIsLoading(false);
+    };
+
+    window.addEventListener('devtype_elo_updated', handleSync);
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('devtype_cache_revalidated', handleRevalidate);
+
     return () => {
-      window.removeEventListener(ELO_EVENT_NAME, handleEloSync);
-      window.removeEventListener('storage', handleEloSync);
+      active = false;
+      clearInterval(refresh);
+      window.removeEventListener('devtype_elo_updated', handleSync);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('devtype_cache_revalidated', handleRevalidate);
     };
-  }, []);
+  }, [fetchData, selectedTier, user?.id]);
 
-  // Sync friends when user changes or window regains focus
-  useEffect(() => {
-    setFriendsData(getStoredFriends(user?.id));
-    const onFocus = () => setFriendsData(getStoredFriends(user?.id));
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [user?.id]);
+  // Filtered and Sorted Competitors
+  const processedCompetitors = useMemo(() => {
+    let list = [...leaderboardData];
 
-  // Build the complete combined competitive leaderboard
-  const allRankedCompetitors = useMemo(() => {
-    const friendsSet = new Set(
-      (friendsData?.connected || []).map((f) => (f.id || f.name || '').toLowerCase())
-    );
+    // Search query filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(
+        (dev) =>
+          (dev.name && dev.name.toLowerCase().includes(q)) ||
+          (dev.username && dev.username.toLowerCase().includes(q))
+      );
+    }
 
-    const currentUserEntry = {
-      id: user?.id ? `user-${user.id}` : 'current-user',
-      name: user?.username || 'you',
-      displayName: user?.displayName || user?.username || 'You',
-      avatar: (user?.displayName || user?.username || 'U').slice(0, 2).toUpperCase(),
-      avatarBg: 'linear-gradient(135deg, #2563EB, #1D4ED8)',
-      rating: userElo.rating,
-      peakRating: userElo.peakRating,
-      wins: userElo.wins,
-      losses: userElo.losses,
-      recentDelta: userElo.recentDelta,
-      favLang: 'C++',
-      status: 'Ready for Battle',
-      title: 'Competitive Challenger',
-      isCurrentUser: true,
-      isFriend: false,
-    };
-
-    const roster = COMPETITIVE_LEADERBOARD_ROSTER.map((peer) => {
-      const isFriend =
-        friendsSet.has((peer.id || '').toLowerCase()) ||
-        friendsSet.has((peer.name || '').toLowerCase());
-      return {
-        ...peer,
-        isCurrentUser: false,
-        isFriend,
-      };
+    // Sort
+    list.sort((a, b) => {
+      if (sortBy === 'peak') {
+        return (b.peakRating || 0) - (a.peakRating || 0);
+      }
+      if (sortBy === 'wins') {
+        return (b.wins || 0) - (a.wins || 0);
+      }
+      if (sortBy === 'winrate') {
+        return (b.winRate || 0) - (a.winRate || 0);
+      }
+      if (sortBy === 'lastPoints') {
+        return (b.lastMatchPoints ?? -9999) - (a.lastMatchPoints ?? -9999);
+      }
+      return (b.rating || 0) - (a.rating || 0);
     });
 
-    const combined = [currentUserEntry, ...roster];
-
-    // Sort strictly by ELO rating descending
-    combined.sort((a, b) => b.rating - a.rating);
-
-    // Assign sequential ranks
-    return combined.map((player, idx) => ({
-      ...player,
-      rank: idx + 1,
-    }));
-  }, [user, userElo, friendsData]);
-
-  // Current user's relative standing
-  const currentUserStanding = useMemo(() => {
-    return allRankedCompetitors.find((dev) => dev.isCurrentUser);
-  }, [allRankedCompetitors]);
-
-  // Filter based on Scope, Tier, and Search
-  const filteredCompetitors = useMemo(() => {
-    return allRankedCompetitors.filter((dev) => {
-      // Scope filter
-      if (scope === 'friends' && !dev.isFriend && !dev.isCurrentUser) {
-        return false;
-      }
-
-      // Tier filter
-      if (selectedTier !== 'all') {
-        const tier = getTierForRating(dev.rating);
-        if (tier.name !== selectedTier) return false;
-      }
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const matchName = dev.name?.toLowerCase().includes(q);
-        const matchDisplay = dev.displayName?.toLowerCase().includes(q);
-        const matchLang = dev.favLang?.toLowerCase().includes(q);
-        if (!matchName && !matchDisplay && !matchLang) return false;
-      }
-
-      return true;
-    });
-  }, [allRankedCompetitors, scope, selectedTier, searchQuery]);
+    return list;
+  }, [leaderboardData, searchQuery, sortBy]);
 
   // Top 3 Podium
   const topThree = useMemo(() => {
-    return [allRankedCompetitors[0], allRankedCompetitors[1], allRankedCompetitors[2]];
-  }, [allRankedCompetitors]);
+    return [leaderboardData[0], leaderboardData[1], leaderboardData[2]];
+  }, [leaderboardData]);
+
+  // Current user's relative standing
+  const currentUserStanding = useMemo(() => {
+    return leaderboardData.find((dev) => dev.isCurrentUser);
+  }, [leaderboardData]);
 
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(filteredCompetitors.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(processedCompetitors.length / pageSize));
   const paginatedCompetitors = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return filteredCompetitors.slice(start, start + pageSize);
-  }, [filteredCompetitors, page]);
+    return processedCompetitors.slice(start, start + pageSize);
+  }, [processedCompetitors, page]);
 
   const handleScrollToUser = () => {
     if (userRowRef.current) {
@@ -287,492 +364,721 @@ export default function Leaderboard() {
     }
   };
 
-  const userTier = getTierForRating(userElo.rating);
+  const daysRemaining = seasonInfo?.daysRemaining ?? (myRankData?.daysRemaining ?? 0);
+  const seasonName = seasonInfo?.seasonName || 'Season unavailable';
+  const activeCompetitors = (seasonInfo?.activeCompetitors && seasonInfo.activeCompetitors > 0)
+    ? seasonInfo.activeCompetitors
+    : (leaderboardData.length || 0);
+  const champName = seasonInfo?.lastSeasonChampionName || 'No archived champion';
+  const champUsername = seasonInfo?.lastSeasonChampionUsername || '—';
+  const champRating = seasonInfo?.lastSeasonChampionRating || 0;
+
+  const currentTier = myRankData?.tier || currentUserStanding?.seasonTier || 'Unavailable';
+  const currentRating = myRankData?.rating ?? currentUserStanding?.rating ?? '—';
+  const currentPeak = myRankData?.peakRating ?? currentUserStanding?.peakRating ?? '—';
+  const currentWins = myRankData?.wins || currentUserStanding?.wins || 0;
+  const currentLosses = myRankData?.losses || currentUserStanding?.losses || 0;
+  const currentWinRate = myRankData?.winRate || currentUserStanding?.winRate || 0;
+  const pointsToNext = myRankData?.pointsToNextTier ?? 0;
+  const nextTierName = myRankData?.nextTierName || 'Unavailable';
+  const currentRankPos = myRankData?.rank || currentUserStanding?.rank || '—';
+  const currentBand = tierConfiguration?.tiers.find(t => currentRating >= t.minRating && currentRating <= t.maxRating);
+  const tierProgress = currentBand ? (currentBand.maxRating >= 99999 ? 100 : Math.max(0, Math.min(100, 100 * (currentRating - currentBand.minRating) / (currentBand.maxRating + 1 - currentBand.minRating)))) : 0;
+  const myTierVisuals = getBgmiTierVisuals(currentTier);
 
   return (
     <div className="dash space-y-6">
-      {/* ── Top Navigation Switcher Between Multiplayer Arena & Leaderboard ── */}
-      <div className="multiplayer-nav-switcher card">
-        <div className="multiplayer-nav-tabs">
+      {/* ── Top Page Switcher: Leaderboard vs My Rank ── */}
+      <div className="lb-view-switcher">
+        <div className="lb-view-tabs">
           <button
             type="button"
-            className="multiplayer-nav-tab"
-            onClick={() => navigate('/multiplayer')}
-          >
-            <Swords size={16} />
-            <span>Multiplayer Arena</span>
-          </button>
-          <button
-            type="button"
-            className="multiplayer-nav-tab is-active"
-            onClick={() => {}}
+            className={`lb-view-tab ${activeTab === 'leaderboard' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('leaderboard')}
           >
             <Trophy size={16} />
-            <span>Multiplayer Rank Leaderboard</span>
+            <span>Global Leaderboard</span>
           </button>
-        </div>
-        <div className="multiplayer-nav-right">
           <button
             type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => navigate('/multiplayer')}
+            className={`lb-view-tab ${activeTab === 'my-rank' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('my-rank')}
           >
-            <Play size={13} fill="currentColor" />
-            <span>Play Ranked Match</span>
+            <Shield size={16} />
+            <span>Current Rank</span>
           </button>
         </div>
-      </div>
 
-      {/* ── Welcome & Overview Banner ── */}
-      <div className="dash-welcome">
-        <div className="welcome-left">
-          <div className="welcome-tag">
-            <Trophy size={13} />
-            <span>Competitive ELO Ladder · Season 1</span>
-          </div>
-          <h1>Multiplayer Rank Leaderboard</h1>
-          <p>
-            Official chess-style ELO rating system. Win ranked races in Classic Race or 1v1 Battle to gain rating points, climb tiers, and become Grandmaster.
-          </p>
-        </div>
-
-        <div className="welcome-widget">
-          <div className="widget-label">YOUR RATING</div>
-          <div className="widget-val" style={{ color: userTier.color }}>
-            {userElo.rating} ELO
-          </div>
-          <div className="widget-sub">
-            {userTier.icon} {userTier.name} Tier · #{currentUserStanding?.rank || '—'} Global
-          </div>
+        <div className="lb-season-badge-tag">
+          <span className="season-countdown-pulse">
+            <span className="pulse-dot" />
+            <span>{seasonName}</span>
+          </span>
+          <span style={{ color: 'var(--border-subtle)' }}>•</span>
+          <span style={{ color: '#F59E0B' }}>
+            <Clock size={13} style={{ display: 'inline', marginRight: 4 }} />
+            {!seasonInfo ? 'Season unavailable' : daysRemaining === 0 ? 'Season ended — finalizing' : daysRemaining === 1 ? 'Final day' : `${daysRemaining} Days Left`}
+          </span>
         </div>
       </div>
 
-      {/* ── Stats Grid (4 Cards) ── */}
-      <div className="stat-grid">
-        <div className="stat-card">
-          <div className="stat-icon-wrap" style={{ background: 'rgba(37, 99, 235, 0.1)', color: '#2563EB' }}>
-            <Users size={18} />
+      {/* ── Backend Offline Notification (Pure consistency, no fake players) ── */}
+      {isOffline && (
+        <div className="lb-offline-banner">
+          <AlertCircle size={24} className="lb-offline-icon" />
+          <div className="lb-offline-text">
+            <h4>Database & Backend Offline</h4>
+            <p>
+              Leaderboard rankings are strictly synchronized with PostgreSQL database records. Start the backend server (<code>./mvnw spring-boot:run</code>) to stream real player rankings.
+            </p>
           </div>
-          <div className="stat-content">
-            <span className="stat-label">Active Competitors</span>
-            <div className="stat-number">{allRankedCompetitors.length.toLocaleString()}</div>
-            <span className="stat-trend positive">Global ladder</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon-wrap" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B' }}>
-            <Crown size={18} />
-          </div>
-          <div className="stat-content">
-            <span className="stat-label">Apex Champion</span>
-            <div className="stat-number">{allRankedCompetitors[0]?.rating || 2684} ELO</div>
-            <span className="stat-trend neutral">@{allRankedCompetitors[0]?.name || 'neo_matrix'}</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon-wrap" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
-            <TrendingUp size={18} />
-          </div>
-          <div className="stat-content">
-            <span className="stat-label">Your Win Rate</span>
-            <div className="stat-number">
-              {userElo.matchesPlayed > 0
-                ? `${Math.round((userElo.wins / userElo.matchesPlayed) * 100)}%`
-                : '0%'}
-            </div>
-            <span className="stat-trend positive">
-              {userElo.wins}W - {userElo.losses}L
-            </span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon-wrap" style={{ background: 'rgba(225, 29, 72, 0.1)', color: '#E11D48' }}>
-            <Swords size={18} />
-          </div>
-          <div className="stat-content">
-            <span className="stat-label">Ranked Matches</span>
-            <div className="stat-number">{userElo.matchesPlayed}</div>
-            <span className="stat-trend neutral">Peak: {userElo.peakRating} ELO</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Top-3 Podium ── */}
-      <div className="top-podium-grid">
-        <TopPodiumCard dev={topThree[1]} place={2} />
-        <TopPodiumCard dev={topThree[0]} place={1} />
-        <TopPodiumCard dev={topThree[2]} place={3} />
-      </div>
-
-      {/* ── Your Personal Competitive Standing Card ── */}
-      {currentUserStanding && (
-        <div className="card your-elo-card">
-          <div className="your-elo-left">
-            <div className="your-elo-rank-circle">#{currentUserStanding.rank}</div>
-            <div className="your-elo-avatar">{currentUserStanding.avatar}</div>
-            <div className="your-elo-ident">
-              <div className="your-elo-name-row">
-                <span className="your-elo-name">{currentUserStanding.displayName}</span>
-                <span
-                  className="your-elo-tier-badge"
-                  style={{
-                    backgroundColor: userTier.bg,
-                    color: userTier.color,
-                    borderColor: userTier.border,
-                  }}
-                >
-                  {userTier.icon} {userTier.name}
-                </span>
-                <span className="your-elo-you-pill">YOU</span>
-              </div>
-              <span className="your-elo-status">
-                Baseline starting rating: 1,200 ELO · Complete ranked matches to climb
-              </span>
-            </div>
-          </div>
-
-          <div className="your-elo-right">
-            <div className="your-elo-metric-block">
-              <span className="your-elo-metric-label">CURRENT RATING</span>
-              <span className="your-elo-metric-val" style={{ color: userTier.color }}>
-                {userElo.rating} <small>ELO</small>
-              </span>
-            </div>
-
-            <div className="your-elo-divider" />
-
-            <div className="your-elo-metric-block">
-              <span className="your-elo-metric-label">W / L RECORD</span>
-              <span className="your-elo-metric-val">
-                {userElo.wins}W - {userElo.losses}L
-              </span>
-            </div>
-
-            <div className="your-elo-divider" />
-
-            <div className="your-elo-metric-block">
-              <span className="your-elo-metric-label">RECENT DELTA</span>
-              <span
-                className={`your-elo-metric-val ${
-                  userElo.recentDelta > 0
-                    ? 'delta-positive'
-                    : userElo.recentDelta < 0
-                    ? 'delta-negative'
-                    : ''
-                }`}
-              >
-                {userElo.recentDelta > 0 ? `+${userElo.recentDelta}` : userElo.recentDelta} ELO
-              </span>
-            </div>
-
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => navigate('/multiplayer')}
-            >
-              <Swords size={14} />
-              <span>Play Ranked</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            style={{ marginLeft: 'auto' }}
+            onClick={fetchData}
+            disabled={isLoading}
+          >
+            <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+            <span>Retry Connection</span>
+          </button>
         </div>
       )}
 
-      {/* ── Toolbar: Scope, Tier Filters & Search ── */}
-      <div className="card leaderboard-filter-card">
-        <div className="leaderboard-filter-row">
-          {/* Scope Toggle */}
-          <div className="scope-tabs-group">
-            <button
-              type="button"
-              className={`scope-tab-btn ${scope === 'global' ? 'is-active' : ''}`}
-              onClick={() => {
-                setScope('global');
-                setPage(1);
-              }}
-            >
-              <Users size={14} />
-              <span>Global Ladder</span>
-            </button>
-            <button
-              type="button"
-              className={`scope-tab-btn ${scope === 'friends' ? 'is-active' : ''}`}
-              onClick={() => {
-                setScope('friends');
-                setPage(1);
-              }}
-            >
-              <Shield size={14} />
-              <span>Friends Only</span>
-            </button>
+      {/* ============================================================
+          VIEW 1: GLOBAL COMPETITIVE LEADERBOARD
+          ============================================================ */}
+      {activeTab === 'leaderboard' && (
+        <>
+          {/* ── Top Stats Grid (Active Competitors, Last Champion, Countdown, Peak) ── */}
+          <div className="lb-season-stat-grid">
+            {/* Active Competitors */}
+            <div className="lb-stat-card">
+              <div
+                className="lb-stat-icon-wrap"
+                style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6' }}
+              >
+                <Users size={22} />
+              </div>
+              <div>
+                <div className="lb-stat-label">Active Competitors</div>
+                <div className="lb-stat-value">{activeCompetitors}</div>
+                <div className="lb-stat-sub">Registered Ranked Developers</div>
+              </div>
+            </div>
+
+            {/* Last Season Champion */}
+            <div className="lb-stat-card">
+              <div
+                className="lb-stat-icon-wrap"
+                style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}
+              >
+                <Crown size={22} />
+              </div>
+              <div>
+                <div className="lb-stat-label">Last Season Champion</div>
+                <div className="lb-stat-value" style={{ fontSize: '1.05rem', color: '#F59E0B' }}>
+                  {champName}
+                </div>
+                <div className="lb-stat-sub">
+                  @{champUsername} · {champRating} ELO
+                </div>
+              </div>
+            </div>
+
+            {/* Days Remaining in Season */}
+            <div className="lb-stat-card">
+              <div
+                className="lb-stat-icon-wrap"
+                style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}
+              >
+                <Clock size={22} />
+              </div>
+              <div>
+                <div className="lb-stat-label">Season Ending In</div>
+                <div className="lb-stat-value" style={{ color: '#10B981' }}>
+                  {daysRemaining} Days
+                </div>
+                <div className="lb-stat-sub">Automatic Tier Reset at End</div>
+              </div>
+            </div>
+
+            {/* Top Tier Benchmark */}
+            <div className="lb-stat-card">
+              <div
+                className="lb-stat-icon-wrap"
+                style={{ background: 'rgba(244, 63, 94, 0.15)', color: '#F43F5E' }}
+              >
+                <Flame size={22} />
+              </div>
+              <div>
+                <div className="lb-stat-label">Dominator Cutoff</div>
+                <div className="lb-stat-value" style={{ color: '#F43F5E' }}>
+                  4,200+
+                </div>
+                <div className="lb-stat-sub">Ace & Conqueror Tier</div>
+              </div>
+            </div>
           </div>
 
-          {/* Tier Filter Dropdown / Pills */}
-          <div className="tier-filter-scroll">
-            {TIER_FILTERS.map((tf) => (
-              <button
-                key={tf.id}
-                type="button"
-                className={`tier-filter-btn ${selectedTier === tf.id ? 'is-active' : ''}`}
-                onClick={() => {
-                  setSelectedTier(tf.id);
-                  setPage(1);
+          {/* ── Top 3 Master Podium Showcase ── */}
+          <div className="lb-podium-master-card">
+            <div className="lb-podium-master-header">
+              <div className="lb-podium-master-title">
+                <Crown size={20} color="#F59E0B" />
+                <h2>Top 3 Competitors · Grand Podium</h2>
+              </div>
+              <span className="lb-podium-master-tag">Season 1 Leaders</span>
+            </div>
+
+            {leaderboardData.length >= 3 ? (
+              <div className="lb-top3-grid">
+                {/* 2nd Place */}
+                <TopPodiumCard dev={topThree[1]} place={2} />
+                {/* 1st Place */}
+                <TopPodiumCard dev={topThree[0]} place={1} />
+                {/* 3rd Place */}
+                <TopPodiumCard dev={topThree[2]} place={3} />
+              </div>
+            ) : leaderboardData.length > 0 ? (
+              <div className="lb-top3-grid">
+                {leaderboardData.map((player, idx) => (
+                  <TopPodiumCard key={player.userId || idx} dev={player} place={idx + 1} />
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '36px',
+                  textAlign: 'center',
+                  color: 'var(--t3)',
                 }}
               >
-                {tf.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Search Box */}
-          <div className="leaderboard-search-wrap">
-            <Search size={14} className="search-icon" />
-            <input
-              type="text"
-              placeholder="Search competitor..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setPage(1);
-              }}
-              className="leaderboard-search-input"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                className="search-clear-btn"
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear search"
-              >
-                <X size={12} />
-              </button>
+                <Trophy size={36} style={{ margin: '0 auto 12px auto', opacity: 0.4 }} />
+                <p>No active database competitors recorded yet. Play ranked matches to claim the top podium!</p>
+              </div>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* ── Competitive Table ── */}
-      <div className="card table-container">
-        <div className="table-responsive">
-          <table className="leaderboard-table">
-            <thead>
-              <tr>
-                <th style={{ width: '70px', textAlign: 'center' }}>RANK</th>
-                <th>COMPETITOR</th>
-                <th>RATING (ELO)</th>
-                <th>TIER</th>
-                <th>W / L RECORD</th>
-                <th>WIN RATE</th>
-                <th>PEAK ELO</th>
-                <th>RECENT TREND</th>
-                <th style={{ textAlign: 'right' }}>ACTION</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedCompetitors.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="table-empty-row">
-                    <Trophy size={28} style={{ color: 'var(--t3)', margin: '0 auto 8px' }} />
-                    <p>No competitors found matching your search and tier filters.</p>
-                  </td>
-                </tr>
-              ) : (
-                paginatedCompetitors.map((dev) => {
-                  const devTier = getTierForRating(dev.rating);
-                  const totalMatches = (dev.wins || 0) + (dev.losses || 0);
-                  const wr = totalMatches > 0 ? Math.round((dev.wins / totalMatches) * 100) : 0;
-                  const isTop3 = dev.rank <= 3;
+          {/* ── User's Personal Standing Box (Down from Top 3) ── */}
+          <div className="lb-user-standing-banner">
+            <div className="lb-user-standing-left">
+              <div className="lb-user-rank-box" title="Your Global Sequential Rank">
+                #{currentRankPos}
+              </div>
+              <div className="lb-user-profile-info">
+                <div className="lb-user-profile-title">
+                  <span className="lb-user-name">
+                    {user?.displayName || user?.username || 'You'}
+                  </span>
+                  <span className="lb-user-you-tag">YOU</span>
+                  <span
+                    className="bgmi-tier-badge"
+                    style={{
+                      margin: 0,
+                      color: myTierVisuals.color,
+                      backgroundColor: myTierVisuals.bg,
+                      border: `1px solid ${myTierVisuals.border}`,
+                    }}
+                  >
+                    {myTierVisuals.icon} {currentTier}
+                  </span>
+                </div>
+                <span className="lb-user-handle">@{user?.username || 'developer'}</span>
+              </div>
+            </div>
 
-                  return (
-                    <tr
-                      key={dev.id}
-                      ref={dev.isCurrentUser ? userRowRef : null}
-                      className={`leaderboard-row ${dev.isCurrentUser ? 'is-current-user-row' : ''}`}
-                    >
-                      {/* Rank Position */}
-                      <td style={{ textAlign: 'center' }}>
-                        <div className="rank-cell-wrap">
-                          {dev.rank === 1 ? (
-                            <span className="rank-badge rank-badge-1" title="Rank 1">
-                              👑 1
-                            </span>
-                          ) : dev.rank === 2 ? (
-                            <span className="rank-badge rank-badge-2" title="Rank 2">
-                              🥈 2
-                            </span>
-                          ) : dev.rank === 3 ? (
-                            <span className="rank-badge rank-badge-3" title="Rank 3">
-                              🥉 3
-                            </span>
-                          ) : (
-                            <span className="rank-number">#{dev.rank}</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Competitor */}
-                      <td>
-                        <div className="competitor-cell">
-                          <div
-                            className="competitor-avatar"
-                            style={{ background: dev.avatarBg || '#2563EB' }}
-                          >
-                            {dev.avatar}
-                          </div>
-                          <div className="competitor-info">
-                            <div className="competitor-name-row">
-                              <span className="competitor-name">{dev.displayName}</span>
-                              {dev.isCurrentUser && (
-                                <span className="competitor-you-tag">YOU</span>
-                              )}
-                              {dev.isFriend && (
-                                <span className="competitor-friend-tag">FRIEND</span>
-                              )}
-                            </div>
-                            <span className="competitor-handle">
-                              @{dev.name} · {dev.favLang}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* ELO Rating */}
-                      <td>
-                        <div className="elo-rating-cell">
-                          <span className="elo-rating-val">{dev.rating.toLocaleString()}</span>
-                          <span className="elo-rating-unit">ELO</span>
-                        </div>
-                      </td>
-
-                      {/* Tier Badge */}
-                      <td>
-                        <span
-                          className="table-tier-pill"
-                          style={{
-                            backgroundColor: devTier.bg,
-                            color: devTier.color,
-                            borderColor: devTier.border,
-                          }}
-                        >
-                          {devTier.icon} {devTier.name}
-                        </span>
-                      </td>
-
-                      {/* W / L Record */}
-                      <td>
-                        <span className="wl-record-text">
-                          <strong style={{ color: '#10B981' }}>{dev.wins}W</strong> -{' '}
-                          <span style={{ color: '#EF4444' }}>{dev.losses}L</span>
-                        </span>
-                      </td>
-
-                      {/* Win Rate */}
-                      <td>
-                        <div className="win-rate-cell">
-                          <span className="win-rate-num">{wr}%</span>
-                          <div className="win-rate-bar-bg">
-                            <div
-                              className="win-rate-bar-fill"
-                              style={{ width: `${Math.min(100, wr)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Peak ELO */}
-                      <td>
-                        <span className="peak-elo-text">{dev.peakRating || dev.rating}</span>
-                      </td>
-
-                      {/* Recent Trend */}
-                      <td>
-                        <span
-                          className={`recent-trend-badge ${
-                            dev.recentDelta > 0
-                              ? 'is-pos'
-                              : dev.recentDelta < 0
-                              ? 'is-neg'
-                              : 'is-neutral'
-                          }`}
-                        >
-                          {dev.recentDelta > 0
-                            ? `+${dev.recentDelta}`
-                            : dev.recentDelta < 0
-                            ? `${dev.recentDelta}`
-                            : '0'}
-                        </span>
-                      </td>
-
-                      {/* Action */}
-                      <td style={{ textAlign: 'right' }}>
-                        {dev.isCurrentUser ? (
-                          <span className="current-user-tag">Active</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-xs table-duel-btn"
-                            onClick={() => navigate('/multiplayer')}
-                            title={`Challenge ${dev.displayName} to 1v1 Battle`}
-                          >
-                            <Swords size={12} />
-                            <span>1v1</span>
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Table Pagination ── */}
-        {totalPages > 1 && (
-          <div className="leaderboard-pagination">
-            <span className="pagination-info">
-              Showing {(page - 1) * pageSize + 1}–
-              {Math.min(page * pageSize, filteredCompetitors.length)} of{' '}
-              {filteredCompetitors.length} ranked competitors
-            </span>
-
-            <div className="pagination-controls">
+            <div className="lb-user-stats-bar">
+              <div className="lb-user-stat-cell">
+                <span className="lb-user-stat-label">Current Rating</span>
+                <span className="lb-user-stat-val" style={{ color: myTierVisuals.color }}>
+                  {currentRating} ELO
+                </span>
+              </div>
+              <div className="lb-user-stat-cell">
+                <span className="lb-user-stat-label">Peak This Season</span>
+                <span className="lb-user-stat-val">{currentPeak}</span>
+              </div>
+              <div className="lb-user-stat-cell">
+                <span className="lb-user-stat-label">W - L Record</span>
+                <span className="lb-user-stat-val">
+                  {currentWins}W - {currentLosses}L ({currentWinRate}%)
+                </span>
+              </div>
               <button
                 type="button"
-                className="pagination-btn"
-                disabled={page === 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                aria-label="Previous page"
+                className="btn btn-secondary btn-sm"
+                onClick={handleScrollToUser}
               >
-                <ChevronLeft size={14} />
-              </button>
-
-              {Array.from({ length: totalPages }).map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={`pagination-page-btn ${page === i + 1 ? 'active' : ''}`}
-                  onClick={() => setPage(i + 1)}
-                >
-                  {i + 1}
-                </button>
-              ))}
-
-              <button
-                type="button"
-                className="pagination-btn"
-                disabled={page === totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                aria-label="Next page"
-              >
-                <ChevronRight size={14} />
+                <span>Jump to My Row</span>
+                <ArrowUpRight size={13} />
               </button>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* ── Full Leaderboard Directory Table with Filter & Pagination ── */}
+          <div className="card lb-table-card">
+            {/* Table Toolbar */}
+            <div className="card-header" style={{ flexWrap: 'wrap', gap: 14 }}>
+              <div>
+                <h3 className="card-title">All Ranked Competitors</h3>
+                <p className="card-subtitle">
+                  Synchronized with database ratings. Climb the BGMI tier ladder through ranked multiplayer duels.
+                </p>
+              </div>
+
+              {/* Filters Toolbar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  flexWrap: 'wrap',
+                }}
+              >
+                {/* Search Input */}
+                <div className="search-wrap lb-search-wrap">
+                  <Search size={14} className="search-icon" />
+                  <input
+                    type="text"
+                    className="search-input lb-search-input"
+                    placeholder="Search name or username..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setPage(1);
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="search-clear-btn"
+                      onClick={() => setSearchQuery('')}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Tier Filter Dropdown */}
+                <select
+                  className="lb-select"
+                  value={selectedTier}
+                  onChange={(e) => {
+                    setSelectedTier(e.target.value);
+                    setPage(1);
+                  }}
+                  aria-label="Filter by Tier"
+                >
+                  {TIER_FILTER_OPTIONS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Sort Option */}
+                <select
+                  className="lb-select"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  aria-label="Sort by metric"
+                >
+                  <option value="rating">Sort by Rating</option>
+                  <option value="peak">Sort by Peak Rating</option>
+                  <option value="lastPoints">Sort by Last Points</option>
+                  <option value="wins">Sort by Wins</option>
+                  <option value="winrate">Sort by Win Rate</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Table Content */}
+            <div className="lb-table-scroll-wrapper">
+              <table className="lb-roster-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 70 }} className="th-center">Rank</th>
+                    <th>Developer</th>
+                    <th>Season Tier</th>
+                    <th className="th-center">Rating</th>
+                    <th className="th-center">Peak This Season</th>
+                    <th className="th-center">Last Points</th>
+                    <th className="th-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedCompetitors.length > 0 ? (
+                    paginatedCompetitors.map((dev) => {
+                      const tierVis = getBgmiTierVisuals(dev.seasonTier);
+                      const isTop1 = dev.rank === 1;
+                      const isTop2 = dev.rank === 2;
+                      const isTop3 = dev.rank === 3;
+                      const totalMatches = dev.matchesPlayed || (dev.wins || 0) + (dev.losses || 0);
+                      const winRate = totalMatches > 0 ? Math.round(((dev.wins || 0) / totalMatches) * 100) : 0;
+
+                      return (
+                        <tr
+                          key={dev.userId || dev.username}
+                          ref={dev.isCurrentUser ? userRowRef : null}
+                          className={`roster-row ${dev.isCurrentUser ? 'current-user-roster-row' : ''}`}
+                        >
+                          {/* Rank # */}
+                          <td className="th-center">
+                            {isTop1 ? (
+                              <span className="rank-medal rank-gold">
+                                <Crown size={12} fill="#F59E0B" /> #1
+                              </span>
+                            ) : isTop2 ? (
+                              <span className="rank-medal rank-silver">
+                                <Medal size={12} /> #2
+                              </span>
+                            ) : isTop3 ? (
+                              <span className="rank-medal rank-bronze">
+                                <Award size={12} /> #3
+                              </span>
+                            ) : (
+                              <span className="rank-plain">#{dev.rank}</span>
+                            )}
+                          </td>
+
+                          {/* Developer Name & Username */}
+                          <td>
+                            <div className="engineer-cell">
+                              <div
+                                className="engineer-avatar"
+                                style={{
+                                  background: dev.avatarBg || 'linear-gradient(135deg, #2563EB, #1D4ED8)',
+                                  color: '#fff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: 700,
+                                  fontSize: '0.8rem',
+                                }}
+                              >
+                                {dev.avatar || (dev.name || 'U').slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="engineer-info">
+                                <div className="engineer-name-row">
+                                  <span className="engineer-name" style={{ fontWeight: 700 }}>
+                                    {dev.name}
+                                  </span>
+                                  {dev.isCurrentUser && (
+                                    <span className="podium-you-tag" style={{ marginLeft: 6 }}>
+                                      YOU
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="engineer-handle">@{dev.username}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Season Tier */}
+                          <td>
+                            <span
+                              className="bgmi-tier-badge"
+                              style={{
+                                margin: 0,
+                                color: tierVis.color,
+                                backgroundColor: tierVis.bg,
+                                border: `1px solid ${tierVis.border}`,
+                              }}
+                            >
+                              <span>{tierVis.icon}</span>
+                              <span>{dev.seasonTier || 'Bronze V'}</span>
+                            </span>
+                          </td>
+
+                          {/* Rating */}
+                          <td className="th-center">
+                            <span
+                              style={{
+                                fontFamily: 'var(--font-mono)',
+                                fontWeight: 800,
+                                fontSize: '0.95rem',
+                                color: tierVis.color,
+                              }}
+                            >
+                              {dev.rating?.toLocaleString() || 1200}
+                            </span>
+                          </td>
+
+                          {/* Peak Rating */}
+                          <td className="th-center">
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                              {dev.peakRating || dev.rating || 1200}
+                            </span>
+                          </td>
+
+                          {/* Last Match Points (Positive or Negative) */}
+                          <td className="th-center">
+                            {dev.lastMatchPoints != null ? (
+                              <span
+                                className={`lb-points-pill ${dev.lastMatchPoints > 0 ? 'points-gain' : dev.lastMatchPoints < 0 ? 'points-loss' : 'points-neutral'}`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '4px 10px',
+                                  borderRadius: '12px',
+                                  fontSize: '0.82rem',
+                                  fontWeight: 800,
+                                  fontFamily: 'var(--font-mono)',
+                                  background: dev.lastMatchPoints > 0 ? 'rgba(16, 185, 129, 0.12)' : dev.lastMatchPoints < 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(148, 163, 184, 0.12)',
+                                  color: dev.lastMatchPoints > 0 ? '#10B981' : dev.lastMatchPoints < 0 ? '#EF4444' : 'var(--t3)',
+                                  border: `1px solid ${dev.lastMatchPoints > 0 ? 'rgba(16, 185, 129, 0.25)' : dev.lastMatchPoints < 0 ? 'rgba(239, 68, 68, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`,
+                                }}
+                              >
+                                {dev.lastMatchPoints > 0 ? (
+                                  <>
+                                    <TrendingUp size={13} />
+                                    <span>+{dev.lastMatchPoints} pts</span>
+                                  </>
+                                ) : dev.lastMatchPoints < 0 ? (
+                                  <>
+                                    <TrendingDown size={13} />
+                                    <span>{dev.lastMatchPoints} pts</span>
+                                  </>
+                                ) : (
+                                  <span>0 pts</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.8rem', color: 'var(--t3)' }}>—</span>
+                            )}
+                          </td>
+
+                          {/* Action */}
+                          <td className="th-right">
+                            {dev.isCurrentUser ? (
+                              <span className="btn btn-ghost btn-xs" style={{ opacity: 0.6 }}>
+                                Current User
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-xs"
+                                onClick={() => navigate('/multiplayer')}
+                              >
+                                <Swords size={12} />
+                                <span>Duel</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--t3)' }}>
+                        <Trophy size={32} style={{ margin: '0 auto 8px auto', opacity: 0.4 }} />
+                        <p>No competitors found matching the current filter.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Pagination Controls */}
+            {totalPages > 1 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '14px 20px',
+                  borderTop: '1px solid var(--border-subtle)',
+                }}
+              >
+                <span className="pagination-info">
+                  Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, processedCompetitors.length)} of {processedCompetitors.length} competitors
+                </span>
+
+                <div className="pagination-controls">
+                  <button
+                    type="button"
+                    className="pagination-btn"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, padding: '0 8px' }}>
+                    Page {page} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="pagination-btn"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ============================================================
+          VIEW 2: USER CURRENT RANK & BGMI TIER PROGRESSION
+          ============================================================ */}
+      {activeTab === 'my-rank' && (
+        <div className="bgmi-tier-view">
+          {/* ── Hero Card: Current BGMI Tier & Countdown ── */}
+          <div className="bgmi-hero-card">
+            <div className="bgmi-hero-top">
+              <div className="bgmi-tier-badge-large">
+                <div
+                  className="bgmi-tier-emblem"
+                  style={{
+                    backgroundColor: myTierVisuals.bg,
+                    borderColor: myTierVisuals.border,
+                    color: myTierVisuals.color,
+                  }}
+                >
+                  {myTierVisuals.icon}
+                </div>
+                <div className="bgmi-tier-titles">
+                  <span style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: myTierVisuals.color }}>
+                    Current Ranked Standing
+                  </span>
+                  <h1 style={{ color: myTierVisuals.color }}>{currentTier}</h1>
+                  <div className="bgmi-tier-subtitle">
+                    Global Rank: #{currentRankPos} · Peak Rating This Season: {currentPeak} ELO
+                  </div>
+                </div>
+              </div>
+
+              {/* Season Countdown */}
+              <div className="bgmi-countdown-box">
+                <div className="bgmi-countdown-label">Days Remaining in Season</div>
+                <div className="bgmi-countdown-val">
+                  {daysRemaining} Days
+                </div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--t3)' }}>
+                  Tier reset occurs on season end
+                </span>
+              </div>
+            </div>
+
+            {/* Progress Bar to Next Sub-tier */}
+            <div className="bgmi-progress-block">
+              <div className="bgmi-progress-meta">
+                <span>Current Rating: <strong>{currentRating} ELO</strong></span>
+                <span className="points-left">
+                  {pointsToNext > 0 ? `${pointsToNext} points to reach ${nextTierName}` : 'Max Tier Benchmark Achieved'}
+                </span>
+              </div>
+              <div className="bgmi-progress-bar-bg">
+                <div
+                  className="bgmi-progress-bar-fill"
+                  style={{
+                    width: `${tierProgress}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ── BGMI Tier Roadmap Ladder (Bronze -> Ace) ── */}
+          <div className="bgmi-tier-ladder">
+            <div className="bgmi-ladder-header">
+              <h3>BGMI Tier Roadmap & Hierarchy</h3>
+              <p>Advance through the competitive tiers by winning 1v1 Battles and multiplayer ranked races.</p>
+            </div>
+
+            <div className="bgmi-ladder-row">
+              {BGMI_TIER_ORDER.map((tierGroup) => {
+                const conf = BGMI_TIER_CONFIG[tierGroup] || BGMI_TIER_CONFIG.Bronze;
+                const isCurrentGroup = getTierGroup(currentTier) === tierGroup;
+
+                return (
+                  <div
+                    key={tierGroup}
+                    className={`bgmi-ladder-step ${isCurrentGroup ? 'current-step' : ''}`}
+                    style={isCurrentGroup ? { borderColor: conf.color } : {}}
+                  >
+                    {isCurrentGroup && (
+                      <span
+                        className="bgmi-step-active-tag"
+                        style={{ background: conf.color, color: '#fff' }}
+                      >
+                        CURRENT
+                      </span>
+                    )}
+                    <span className="bgmi-step-icon">{conf.icon}</span>
+                    <span className="bgmi-step-name" style={{ color: isCurrentGroup ? conf.color : 'inherit' }}>
+                      {tierGroup}
+                    </span>
+                    <span className="bgmi-step-range">
+                      {tierGroup === 'Conqueror' ? `Top ${tierConfiguration?.conquerorPositions ?? '—'} · 4200+ · ranked match required` : tierGroup === 'Ace' ? '4200+' : tierGroup === 'Crown' ? '3500–4199' : tierGroup === 'Diamond' ? '3000–3499' : tierGroup === 'Platinum' ? '2500–2999' : tierGroup === 'Gold' ? '2000–2499' : tierGroup === 'Silver' ? '1500–1999' : '1000–1499'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Season End Tier Reduction Table (BGMI Rule System from Attached Photo) ── */}
+          <div className="bgmi-reset-card">
+            <div className="bgmi-reset-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <TrendingUp size={22} color="#38BDF8" />
+                <h3>Key Thresholds & What They Give You Next Season</h3>
+              </div>
+              <p>
+                At the conclusion of each ranked season, player ranks undergo soft reset based on the exact BGMI tier reduction system.
+                Historical season standings are preserved.
+              </p>
+            </div>
+
+            <table className="bgmi-reset-table">
+              <thead>
+                <tr>
+                  <th>Target Tier to Reach</th>
+                  <th>Starting Tier Next Season</th>
+                  <th>Points Baseline</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(tierConfiguration?.resetRules || []).map((rule) => {
+                  const isMatchingRule = rule.targetTier === currentTier;
+
+                  return (
+                    <tr
+                      key={rule.targetTier}
+                      className={isMatchingRule ? 'active-user-threshold' : ''}
+                    >
+                      <td>
+                        <span className="bgmi-reset-target-badge">
+                          {rule.targetTier}
+                          {isMatchingRule && (
+                            <span className="bgmi-you-marker">YOUR TARGET</span>
+                          )}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="bgmi-reset-start-badge">
+                          <Check size={14} />
+                          {rule.startingNextSeason}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>
+                        {rule.startingRating} ELO
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

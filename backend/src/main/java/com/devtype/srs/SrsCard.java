@@ -8,7 +8,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
- * Spaced Repetition (SRS) tracking card implementing SM-2 memory retention.
+ * Spaced Repetition (SRS) tracking card implementing SM-2 memory retention
+ * with speed-based scheduling and permanent mastery tiers.
  */
 @Entity
 @Table(name = "srs_cards", uniqueConstraints = {
@@ -35,10 +36,13 @@ public class SrsCard extends AuditableEntity {
     @Column(name = "ease_factor", nullable = false, precision = 4, scale = 2)
     private BigDecimal easeFactor = new BigDecimal("2.50");
 
-    @Column(name = "interval_days", nullable = false)
-    private int intervalDays = 1;
+    @Column(name = "interval_days")
+    private Integer intervalDays = 1;
 
-    @Column(name = "due_date", nullable = false)
+    @Column(name = "is_mastered", nullable = false)
+    private boolean isMastered = false;
+
+    @Column(name = "due_date")
     private Instant dueDate;
 
     @Column(name = "last_reviewed_at")
@@ -52,7 +56,7 @@ public class SrsCard extends AuditableEntity {
     }
 
     public SrsCard(User user, String snippetId, String snippetTitle, String language,
-                   int repetition, BigDecimal easeFactor, int intervalDays, Instant dueDate) {
+                   int repetition, BigDecimal easeFactor, Integer intervalDays, Instant dueDate) {
         super();
         this.user = user;
         this.snippetId = snippetId;
@@ -62,6 +66,7 @@ public class SrsCard extends AuditableEntity {
         this.easeFactor = easeFactor;
         this.intervalDays = intervalDays;
         this.dueDate = dueDate;
+        this.isMastered = false;
     }
 
     public User getUser() {
@@ -112,12 +117,20 @@ public class SrsCard extends AuditableEntity {
         this.easeFactor = easeFactor;
     }
 
-    public int getIntervalDays() {
+    public Integer getIntervalDays() {
         return intervalDays;
     }
 
-    public void setIntervalDays(int intervalDays) {
+    public void setIntervalDays(Integer intervalDays) {
         this.intervalDays = intervalDays;
+    }
+
+    public boolean isMastered() {
+        return isMastered;
+    }
+
+    public void setMastered(boolean mastered) {
+        isMastered = mastered;
     }
 
     public Instant getDueDate() {

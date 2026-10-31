@@ -79,8 +79,8 @@ public class FireworksAiClient {
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userPrompt)
                 ),
-                "temperature", 0.6,
-                "max_tokens", 1500,
+                "temperature", 0.5,
+                "max_tokens", 2800,
                 "response_format", Map.of("type", "json_object")
         );
 
@@ -104,7 +104,21 @@ public class FireworksAiClient {
                 throw new AiServiceException("AI model returned no generation choices.", HttpStatus.BAD_GATEWAY);
             }
 
-            String content = choices.get(0).path("message").path("content").asText(null);
+            JsonNode messageNode = choices.get(0).path("message");
+            String content = messageNode.path("content").asText(null);
+
+            // If a reasoning model outputted in reasoning_content or content is empty
+            if (content == null || content.isBlank()) {
+                String reasoning = messageNode.path("reasoning_content").asText(null);
+                if (reasoning != null && reasoning.contains("{")) {
+                    int start = reasoning.indexOf('{');
+                    int end = reasoning.lastIndexOf('}');
+                    if (start >= 0 && end > start) {
+                        content = reasoning.substring(start, end + 1);
+                    }
+                }
+            }
+
             if (content == null || content.isBlank()) {
                 throw new AiServiceException("AI model returned empty message content.", HttpStatus.BAD_GATEWAY);
             }

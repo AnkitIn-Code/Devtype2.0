@@ -25,6 +25,10 @@ import { authService } from '../services/authService';
 import { achievementService } from '../services/achievementService';
 import { dashboardService } from '../services/dashboardService';
 import { srsService } from '../services/srsService';
+import { practiceService } from '../services/practiceService';
+import { dataCache } from '../services/dataCache';
+import { getSavedSessions } from '../utils/reportStore';
+import { mergeSessions, buildUnifiedDailyActivity, calculateConsistentStreak } from '../utils/sessionSync';
 
 const AVATAR_BG_PRESETS = [
   'linear-gradient(135deg, #1E3A8A, #3B82F6)',
@@ -103,12 +107,15 @@ export default function Profile() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
-  // Authoritative server data
-  const [dashboardData, setDashboardData] = useState(null);
-  const [liveBadges, setLiveBadges] = useState([]);
-  const [srsDeck, setSrsDeck] = useState([]);
-  const [srsDueCards, setSrsDueCards] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Authoritative server data with synchronous eager hydration from dataCache
+  const cachedDash = useMemo(() => dataCache.getDashboard(user?.id), [user?.id]);
+  const [dashboardData, setDashboardData] = useState(() => cachedDash);
+  const [serverSessions, setServerSessions] = useState(() => dataCache.getSessions(user?.id) || []);
+  const [localSessions, setLocalSessions] = useState(() => getSavedSessions(user?.id));
+  const [liveBadges, setLiveBadges] = useState(() => dataCache.getAchievements(user?.id) || []);
+  const [srsDeck, setSrsDeck] = useState(() => dataCache.getDeck(user?.id) || []);
+  const [srsDueCards, setSrsDueCards] = useState(() => dataCache.getDueCards(user?.id) || []);
+  const [isLoading, setIsLoading] = useState(() => !cachedDash);
 
   // Synchronize user profile when auth user changes
   useEffect(() => {
@@ -141,52 +148,98 @@ export default function Profile() {
     }
   }, [isEditModalOpen, isAddFriendModalOpen, selectedPeerProfile]);
 
-  // Load all live user data from server
-  useEffect(() => {
+  // Load all live user data from server and user-scoped store
+  const loadUserData = useCallback(() => {
     let isMounted = true;
-    setIsLoading(true);
+    setLocalSessions(getSavedSessions(user?.id));
 
     const p1 = dashboardService
       .getDashboardSummary()
       .then((data) => {
         if (isMounted && data) {
           setDashboardData(data);
+          dataCache.setDashboard(user?.id, data);
         }
       })
       .catch((err) => {
         console.warn('Could not load user dashboard metrics for profile:', err);
       });
 
-    const p2 = achievementService
+    const p2 = practiceService
+      .getUserSessions({ page: 0, size: 50, sort: 'completedAt,desc' })
+      .then((res) => {
+        if (isMounted && res?.items) {
+          const completedOnly = res.items.filter((s) => s.status === 'COMPLETED');
+          setServerSessions(completedOnly);
+          dataCache.setSessions(user?.id, completedOnly);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load user practice sessions for profile:', err);
+      });
+
+    const p3 = achievementService
       .getAchievements()
       .then((data) => {
         if (isMounted && Array.isArray(data)) {
           setLiveBadges(data);
+          dataCache.setAchievements(user?.id, data);
         }
       })
       .catch(() => {});
 
-    const p3 = Promise.allSettled([
+    const p4 = Promise.allSettled([
       srsService.getDeck(),
       srsService.getDueCards(),
     ]).then(([deckRes, dueRes]) => {
       if (!isMounted) return;
       if (deckRes.status === 'fulfilled' && Array.isArray(deckRes.value)) {
         setSrsDeck(deckRes.value);
+        dataCache.setDeck(user?.id, deckRes.value);
       }
       if (dueRes.status === 'fulfilled' && Array.isArray(dueRes.value)) {
         setSrsDueCards(dueRes.value);
+        dataCache.setDueCards(user?.id, dueRes.value);
       }
     });
 
-    Promise.allSettled([p1, p2, p3]).finally(() => {
+    Promise.allSettled([p1, p2, p3, p4]).finally(() => {
       if (isMounted) setIsLoading(false);
     });
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadUserData();
+
+    const handleSessionCompleted = () => loadUserData();
+    const handleStorageUpdate = (e) => {
+      if (!e.key || e.key.includes('devtype_sessions') || e.key.includes('devtype_auth')) {
+        loadUserData();
+      }
+    };
+    const handleCacheRevalidated = () => {
+      const freshDash = dataCache.getDashboard(user?.id);
+      if (freshDash) setDashboardData(freshDash);
+      const freshSess = dataCache.getSessions(user?.id);
+      if (freshSess) setServerSessions(freshSess);
+      const freshAch = dataCache.getAchievements(user?.id);
+      if (freshAch) setLiveBadges(freshAch);
+    };
+
+    window.addEventListener('devtype_session_completed', handleSessionCompleted);
+    window.addEventListener('storage', handleStorageUpdate);
+    window.addEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+
+    return () => {
+      window.removeEventListener('devtype_session_completed', handleSessionCompleted);
+      window.removeEventListener('storage', handleStorageUpdate);
+      window.removeEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+    };
+  }, [loadUserData]);
 
   // Formatted date helpers
   const formatJoinedDate = (createdAt) => {
@@ -224,9 +277,14 @@ export default function Profile() {
     return `${secs}s`;
   };
 
+  // Merge server and local sessions consistently across pages
+  const allUserSessions = useMemo(() => {
+    return mergeSessions(serverSessions, localSessions);
+  }, [localSessions, serverSessions]);
+
   // Derive favorite language from user's actual sessions
   const favoriteLanguage = useMemo(() => {
-    const sessions = dashboardData?.recentSessions || [];
+    const sessions = allUserSessions.length > 0 ? allUserSessions : (dashboardData?.recentSessions || []);
     if (sessions.length === 0) return null;
     const counts = {};
     sessions.forEach((s) => {
@@ -242,7 +300,7 @@ export default function Profile() {
       }
     });
     return topLang;
-  }, [dashboardData]);
+  }, [allUserSessions, dashboardData]);
 
   // Calculate SRS recall statistics
   const srsStats = useMemo(() => {
@@ -270,8 +328,10 @@ export default function Profile() {
   const totalBadgesCount = liveBadges.length || 10;
   const unlockedBadgesCount = liveBadges.filter((a) => a.unlocked).length;
 
-  // Real user sessions
-  const recentSessions = dashboardData?.recentSessions || [];
+  // Real user sessions (10 most recent)
+  const recentSessions = useMemo(() => {
+    return allUserSessions.slice(0, 10);
+  }, [allUserSessions]);
 
   // Filtered peer directory for the Add Peer modal
   const filteredPeerDirectory = useMemo(() => {
@@ -434,10 +494,58 @@ export default function Profile() {
   const userRole = user?.role === 'ROLE_ADMIN' ? 'Platform Administrator' : (profile.title || 'Software Developer');
   const userJoinedDate = formatJoinedDate(user?.createdAt);
 
-  const bestWpm = dashboardData?.bestWpm != null ? Math.round(Number(dashboardData.bestWpm)) : null;
-  const avgWpm = dashboardData?.averageWpm != null ? Math.round(Number(dashboardData.averageWpm)) : null;
-  const completedSessions = dashboardData?.totalCompletedSessions ?? 0;
-  const currentStreak = dashboardData?.currentStreak ?? 0;
+  const completedSessions = useMemo(() => {
+    return Math.max(dashboardData?.totalCompletedSessions || 0, allUserSessions.length);
+  }, [dashboardData, allUserSessions]);
+
+  const bestWpm = useMemo(() => {
+    const dashBest = dashboardData?.bestWpm != null && Number(dashboardData.bestWpm) > 0
+      ? Math.round(Number(dashboardData.bestWpm))
+      : null;
+    if (dashBest) return dashBest;
+    if (allUserSessions.length > 0) {
+      const max = Math.max(...allUserSessions.map((s) => Number(s.netWpm ?? s.wpm ?? 0)));
+      return max > 0 ? Math.round(max) : null;
+    }
+    return null;
+  }, [dashboardData, allUserSessions]);
+
+  const avgWpm = useMemo(() => {
+    const dashAvg = dashboardData?.averageWpm != null && Number(dashboardData.averageWpm) > 0
+      ? Math.round(Number(dashboardData.averageWpm))
+      : null;
+    if (dashAvg) return dashAvg;
+    if (allUserSessions.length > 0) {
+      const valid = allUserSessions.map((s) => Number(s.netWpm ?? s.wpm ?? 0)).filter((v) => v > 0);
+      if (valid.length > 0) {
+        return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
+      }
+    }
+    return null;
+  }, [dashboardData, allUserSessions]);
+
+  const totalPracticeTime = useMemo(() => {
+    if (dashboardData?.totalPracticeTimeSeconds && dashboardData.totalPracticeTimeSeconds > 0) {
+      return dashboardData.totalPracticeTimeSeconds;
+    }
+    if (allUserSessions.length > 0) {
+      return allUserSessions.reduce((acc, s) => {
+        const secs = s.durationSeconds != null
+          ? Number(s.durationSeconds)
+          : Math.round((Number(s.durationMs) || 0) / 1000);
+        return acc + secs;
+      }, 0);
+    }
+    return 0;
+  }, [dashboardData, allUserSessions]);
+
+  const currentStreak = useMemo(() => {
+    return calculateConsistentStreak(dashboardData?.currentStreak, dashboardData?.dailyActivity, allUserSessions);
+  }, [dashboardData?.currentStreak, dashboardData?.dailyActivity, allUserSessions]);
+
+  const dailyActivity = useMemo(() => {
+    return buildUnifiedDailyActivity(dashboardData?.dailyActivity || [], allUserSessions);
+  }, [dashboardData?.dailyActivity, allUserSessions]);
   const currentXp = dashboardData?.totalXp ?? (user?.totalXp || 0);
   const currentLevel = dashboardData?.level ?? (user?.level || 1);
   const nextLevelXp = dashboardData?.nextLevelXp ?? 200;
@@ -602,7 +710,7 @@ export default function Profile() {
             <div className="stat-num">{completedSessions}</div>
             <div className="stat-label">Total Practice Sessions</div>
             <div className="stat-sub">
-              {formatPracticeTime(dashboardData?.totalPracticeTimeSeconds)} active typing time
+              {formatPracticeTime(totalPracticeTime)} active typing time
             </div>
           </div>
         </div>
@@ -628,7 +736,7 @@ export default function Profile() {
           3. REAL USER ANNUAL ACTIVITY HEATMAP
           ============================================================== */}
       <ActivityHeatmap
-        activityData={dashboardData?.dailyActivity || []}
+        activityData={dailyActivity}
         title="Annual Keyboard Telemetry"
         subtitle="Your authenticated daily typing activity and streak consistency"
       />
@@ -1045,13 +1153,14 @@ export default function Profile() {
                 </thead>
                 <tbody>
                   {recentSessions.map((s, idx) => {
-                    const title = s.templateTitle || s.title || s.templateSlug || 'Practice Sprint';
+                    const title = s.templateTitle || s.title || s.snippetTitle || s.templateSlug || 'Practice Sprint';
                     const lang = s.language || 'Code';
                     const langColor = LANG_COLORS[lang] || '#2563EB';
-                    const speed = s.netWpm != null ? Math.round(Number(s.netWpm)) : (s.wpm ?? '—');
-                    const accuracy = s.accuracyPercent != null ? Math.round(Number(s.accuracyPercent)) : (s.accuracy ?? '—');
-                    const dur = formatDuration(s.durationMs);
-                    const dateStr = formatDate(s.completedAt || s.date);
+                    const speed = s.netWpm != null ? Math.round(Number(s.netWpm)) : (s.wpm != null ? Math.round(Number(s.wpm)) : '—');
+                    const accuracy = s.accuracyPercent != null ? Math.round(Number(s.accuracyPercent)) : (s.accuracy != null ? Math.round(Number(s.accuracy)) : '—');
+                    const durationMsVal = s.durationMs != null ? Number(s.durationMs) : (s.durationSeconds != null ? Number(s.durationSeconds) * 1000 : 0);
+                    const dur = formatDuration(durationMsVal);
+                    const dateStr = formatDate(s.completedAt || s.date || s.startedAt);
 
                     return (
                       <tr key={s.id || idx} className="roster-row">

@@ -24,7 +24,7 @@ public class CorsConfig {
     private final long maxAge;
 
     public CorsConfig(
-            @Value("${devtype.cors.allowed-origins:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173}") String allowedOrigins,
+            @Value("${devtype.cors.allowed-origins:http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://localhost:*,http://127.0.0.1:*}") String allowedOrigins,
             @Value("${devtype.cors.allowed-methods:GET,POST,PUT,PATCH,DELETE,OPTIONS}") String allowedMethods,
             @Value("${devtype.cors.allowed-headers:*}") String allowedHeaders,
             @Value("${devtype.cors.allow-credentials:true}") boolean allowCredentials,

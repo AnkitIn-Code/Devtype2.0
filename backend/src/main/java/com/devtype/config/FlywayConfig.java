@@ -9,8 +9,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Custom Flyway migration strategy.
- * Executes flyway.repair() prior to migration to automatically align checksums
- * if migration scripts were formatted or updated locally, preventing startup failures.
+ * Validates historical migrations before applying new migrations.
+ * Checksum repairs must be reviewed explicitly rather than silently masking schema drift.
  */
 @Configuration
 public class FlywayConfig {

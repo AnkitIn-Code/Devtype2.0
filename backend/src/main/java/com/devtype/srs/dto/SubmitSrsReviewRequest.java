@@ -13,5 +13,17 @@ public record SubmitSrsReviewRequest(
         @Max(value = 5, message = "qualityScore must be between 0 and 5")
         int qualityScore,
         Integer netWpm,
-        Double accuracy
-) {}
+        Double accuracy,
+        Integer errorCount
+) {
+    public SubmitSrsReviewRequest(
+            String snippetId,
+            String snippetTitle,
+            String language,
+            int qualityScore,
+            Integer netWpm,
+            Double accuracy
+    ) {
+        this(snippetId, snippetTitle, language, qualityScore, netWpm, accuracy, null);
+    }
+}

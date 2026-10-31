@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -158,7 +159,7 @@ public class AchievementService {
     /**
      * Lists all platform achievements with unlock status and current progress for the user.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<AchievementResponse> getUserAchievements(Long userId) {
         List<Achievement> allAchievements = achievementRepository.findAll();
         Map<Long, UserAchievement> userUnlocks = userAchievementRepository.findByUserId(userId).stream()

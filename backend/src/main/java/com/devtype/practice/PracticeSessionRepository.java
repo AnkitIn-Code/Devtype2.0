@@ -18,8 +18,10 @@ public interface PracticeSessionRepository extends JpaRepository<PracticeSession
 
     Page<PracticeSession> findByUserIdOrderByStartedAtDesc(Long userId, Pageable pageable);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"template"})
     List<PracticeSession> findByUserIdAndStatusOrderByStartedAtDesc(Long userId, PracticeSessionStatus status);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"template"})
     List<PracticeSession> findByUserIdAndStatusOrderByStartedAtDesc(Long userId, PracticeSessionStatus status, Pageable pageable);
 
     List<PracticeSession> findByUserIdAndStartedAtBetween(Long userId, Instant start, Instant end);

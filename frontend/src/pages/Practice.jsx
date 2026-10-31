@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, RotateCcw, Compass, Loader2 } from 'lucide-react';
 import { tokenizeCodeSnippet } from '../utils/codeTokenizer';
+import { generateCharacterMask } from '../utils/clozeMasker';
 import { calculateTypingMetrics } from '../utils/typingMetrics';
 import { playKeyClickSound } from '../utils/typingSound';
 import { templateService, normalizeTemplate } from '../services/templateService';
@@ -11,6 +12,7 @@ import { srsService } from '../services/srsService';
 import { deriveQualityScore } from '../utils/srsEngine';
 import { useAuth } from '../context/AuthContext';
 import { saveUserSession } from '../utils/reportStore';
+import { dataCache } from '../services/dataCache';
 
 import CodePracticeEditor from '../components/practice/CodePracticeEditor';
 import VirtualKeyboard from '../components/practice/VirtualKeyboard';
@@ -54,22 +56,44 @@ export default function Practice() {
   const [serverMetrics, setServerMetrics] = useState(null);
 
   // Settings & Toggles
-  const [mode, setMode] = useState('Free');
+  const [mode, setMode] = useState('Free'); // 'Free' | 'Strict' | 'Timed'
+  const modeParam = searchParams.get('mode') || location.state?.mode || 'copy';
+  const normalizedInitialMode = modeParam === 'standard' ? 'copy' : modeParam;
+  const [practiceMode, setPracticeMode] = useState(normalizedInitialMode); // 'copy' | 'cloze' | 'blind'
+  const [hintIndex, setHintIndex] = useState(null);
+  const [hintsUsed, setHintsUsed] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastPressedCode, setLastPressedCode] = useState(null);
+  const [strictErrorPulse, setStrictErrorPulse] = useState(false);
 
-  // Tokenize the snippet (safely handles null/empty snippet during loading)
-  const tokenizedSnippet = useMemo(() => {
-    return tokenizeCodeSnippet(selectedSnippet?.code || '', selectedSnippet?.language || 'javascript');
-  }, [selectedSnippet]);
+  // 60-Second Speed Benchmark Constant
+  const TIMED_DURATION_MS = 60000;
 
-  // ── Session State ──
+  // ── Session State (Declared before callbacks) ──
   const [cursorIndex, setCursorIndex] = useState(0);
   const [typedHistory, setTypedHistory] = useState([]); // Array<{ typedChar: string; isCorrect: boolean }>
   const [totalKeystrokes, setTotalKeystrokes] = useState(0);
   const [totalErrors, setTotalErrors] = useState(0);
   const [sessionState, setSessionState] = useState('idle'); // 'idle' | 'active' | 'paused' | 'completed'
   const [isFocused, setIsFocused] = useState(true);
+
+  // Tokenize the snippet (safely handles null/empty snippet during loading)
+  const tokenizedSnippet = useMemo(() => {
+    return tokenizeCodeSnippet(selectedSnippet?.code || '', selectedSnippet?.language || 'javascript');
+  }, [selectedSnippet]);
+
+  // Dynamic Cloze/Blind Character Mask
+  const maskMap = useMemo(() => {
+    if (!tokenizedSnippet || !tokenizedSnippet.flatChars) return [];
+    return generateCharacterMask(tokenizedSnippet, practiceMode);
+  }, [tokenizedSnippet, practiceMode]);
+
+  // Request character hint in Cloze or Blind recall mode
+  const handleRequestHint = useCallback(() => {
+    if (practiceMode === 'copy') return;
+    setHintIndex(cursorIndex);
+    setHintsUsed((prev) => prev + 1);
+  }, [practiceMode, cursorIndex]);
 
   // ── Modals State ──
   const [resultsModalOpen, setResultsModalOpen] = useState(false);
@@ -86,6 +110,12 @@ export default function Practice() {
   const startTimeRef = useRef(null);
   const accumulatedMsRef = useRef(0);
   const timerIntervalRef = useRef(null);
+  const onTimedCompleteRef = useRef(null);
+
+  // Dynamic remaining seconds for Timed mode countdown
+  const remainingSeconds = mode === 'Timed'
+    ? Math.max(0, Math.ceil((TIMED_DURATION_MS - elapsedMs) / 1000))
+    : null;
 
   // ── Unique Telemetry & Flow State ──
   const [streak, setStreak] = useState(0);
@@ -101,14 +131,30 @@ export default function Practice() {
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef(null);
 
-  // Live Timer Interval
+  // Live Timer Interval with Timed Mode Expiration Guard
   useEffect(() => {
     if (sessionState === 'active') {
       startTimeRef.current = Date.now();
       timerIntervalRef.current = setInterval(() => {
         if (startTimeRef.current) {
           const currentSpan = Date.now() - startTimeRef.current;
-          setElapsedMs(accumulatedMsRef.current + currentSpan);
+          const totalElapsed = accumulatedMsRef.current + currentSpan;
+
+          // Enforce 60-second limit in Timed mode
+          if (mode === 'Timed' && totalElapsed >= TIMED_DURATION_MS) {
+            setElapsedMs(TIMED_DURATION_MS);
+            setSessionState('completed');
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current);
+              timerIntervalRef.current = null;
+            }
+            setTimeout(() => {
+              onTimedCompleteRef.current?.();
+            }, 0);
+            return;
+          }
+
+          setElapsedMs(totalElapsed);
         }
       }, 100);
     } else {
@@ -127,7 +173,7 @@ export default function Practice() {
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, [sessionState]);
+  }, [sessionState, mode]);
 
   // Count correct characters and uncorrected errors
   const { correctChars, uncorrectedErrors } = useMemo(() => {
@@ -184,6 +230,7 @@ export default function Practice() {
     setKeyErrorMap({});
     setErrorLocations([]);
     setIsTyping(false);
+    setStrictErrorPulse(false);
     startTimeRef.current = null;
     accumulatedMsRef.current = 0;
     setSessionState('idle');
@@ -280,15 +327,22 @@ export default function Practice() {
         language: selectedSnippet.language,
         difficulty: selectedSnippet.difficulty,
         wpm: finalMetrics.netWpm,
+        netWpm: finalMetrics.netWpm,
         grossWpm: finalMetrics.grossWpm,
         accuracy: finalMetrics.accuracy,
+        accuracyPercent: finalMetrics.accuracy,
         errors: finalMetrics.errorCount,
         durationSeconds: finalMetrics.elapsedSeconds,
+        durationMs: Math.round(finalMetrics.elapsedSeconds * 1000),
         date: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
         isSrsReview: Boolean(srsCardIdParam),
       };
 
       saveUserSession(sessionResult, user?.id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('devtype_session_completed', { detail: sessionResult }));
+      }
     },
     [selectedSnippet, user]
   );
@@ -300,19 +354,15 @@ export default function Practice() {
     }
     const tId = selectedSnippet.numericId || selectedSnippet.id;
     const isNumericId = tId != null && !isNaN(Number(tId));
-    const isCustomOrAi = !isNumericId || selectedSnippet.isAiGenerated;
 
-    const startPayload = isCustomOrAi
-      ? {
-          customTitle: selectedSnippet.title,
-          customLanguage: selectedSnippet.language,
-          customDifficulty: selectedSnippet.difficulty,
-          customContent: selectedSnippet.code || selectedSnippet.content,
-        }
-      : {
-          templateId: Number(tId),
-          templateSlug: selectedSnippet.slug || String(tId),
-        };
+    const startPayload = {
+      templateId: isNumericId ? Number(tId) : null,
+      templateSlug: selectedSnippet.slug || String(tId),
+      customTitle: selectedSnippet.title,
+      customLanguage: selectedSnippet.language,
+      customDifficulty: selectedSnippet.difficulty,
+      customContent: selectedSnippet.code || selectedSnippet.content,
+    };
 
     activeSessionPromiseRef.current = practiceService
       .startSession(startPayload)
@@ -337,14 +387,35 @@ export default function Practice() {
       // 1. Save to local storage for instant availability
       saveSessionResults(finalMetrics);
 
-      // 2. Submit to server if session was started
+      // 2. Submit to server if session was started (or auto-initialize now)
       try {
         let sess = null;
         if (activeSessionPromiseRef.current) {
           sess = await activeSessionPromiseRef.current;
         }
-        const sessionId = sess?.id || activeSessionIdRef.current;
+        let sessionId = sess?.id || activeSessionIdRef.current;
         let serverResult = null;
+
+        // Auto-initialize if session was not started or promise rejected
+        if (!sessionId && selectedSnippet) {
+          try {
+            const tId = selectedSnippet.numericId || selectedSnippet.id;
+            const isNumericId = tId != null && !isNaN(Number(tId));
+            const initRes = await practiceService.startSession({
+              templateId: isNumericId ? Number(tId) : null,
+              templateSlug: selectedSnippet.slug || String(tId),
+              customTitle: selectedSnippet.title,
+              customLanguage: selectedSnippet.language,
+              customDifficulty: selectedSnippet.difficulty,
+              customContent: selectedSnippet.code || selectedSnippet.content,
+            });
+            if (initRes?.id) {
+              sessionId = initRes.id;
+            }
+          } catch (initErr) {
+            console.warn('Could not auto-start session at completion:', initErr);
+          }
+        }
 
         if (sessionId) {
           serverResult = await practiceService.completeSession(sessionId, {
@@ -356,23 +427,48 @@ export default function Practice() {
           });
         }
 
-        // If this session is for an SRS spaced repetition card review
-        if (srsCardIdParam) {
+        // Spaced Repetition (SRS) Performance Matrix Analysis (Templates only, never Custom Studio)
+        const isCustomSnippet = Boolean(
+          selectedSnippet?.isCustom ||
+          String(selectedSnippet?.id || '').startsWith('custom-') ||
+          selectedSnippet?.category === 'Custom Drills' ||
+          selectedSnippet?.category === 'Custom Studio' ||
+          location.state?.snippet?.isCustom
+        );
+
+        if (!isCustomSnippet) {
           try {
-            const qualityScore = deriveQualityScore(
-              finalMetrics.accuracy,
-              finalMetrics.errorCount,
-              finalMetrics.netWpm
-            );
-            const reviewResult = await srsService.submitReview(srsCardIdParam, qualityScore);
-            if (reviewResult) {
-              setServerMetrics((prev) => ({
-                ...(prev || finalMetrics),
-                xpEarned: (prev?.xpEarned || 0) + (reviewResult.xpAward?.xpEarned || 30),
-                srsReviewed: true,
-                srsRepetition: reviewResult.repetition,
-                srsIntervalDays: reviewResult.intervalDays,
-              }));
+            const cardSnippetId = selectedSnippet?.slug || selectedSnippet?.id || srsCardIdParam;
+            if (cardSnippetId) {
+              const qualityScore = deriveQualityScore({
+                netWpm: finalMetrics.netWpm,
+                accuracy: finalMetrics.accuracy,
+                errorCount: finalMetrics.errorCount || 0,
+                hintsUsed,
+                practiceMode,
+              });
+
+              const reviewResult = await srsService.submitReview({
+                snippetId: String(cardSnippetId),
+                title: selectedSnippet?.title || String(cardSnippetId),
+                language: selectedSnippet?.language || 'C++',
+                qualityScore,
+                netWpm: finalMetrics.netWpm,
+                accuracy: finalMetrics.accuracy,
+                errorCount: finalMetrics.errorCount || 0,
+                category: selectedSnippet?.category || 'Template Blueprint',
+              });
+
+              if (reviewResult) {
+                setServerMetrics((prev) => ({
+                  ...(prev || finalMetrics),
+                  xpEarned: (prev?.xpEarned || 0) + (reviewResult.xpAward?.xpEarned || 30),
+                  srsReviewed: true,
+                  srsRepetition: reviewResult.repetition,
+                  srsIntervalDays: reviewResult.intervalDays,
+                  srsMastered: reviewResult.isMastered,
+                }));
+              }
             }
           } catch (srsErr) {
             console.warn('Could not record SRS recall review:', srsErr);
@@ -399,7 +495,39 @@ export default function Practice() {
             code: selectedSnippet.code || selectedSnippet.content,
             syntaxErrors,
           });
+
+          // Mirror server-verified ID and date into user storage
+          const verifiedSession = {
+            id: String(serverResult.id),
+            serverSessionId: serverResult.id,
+            userId: user?.id,
+            snippetId: selectedSnippet.id || selectedSnippet.slug,
+            title: selectedSnippet.title,
+            snippetTitle: selectedSnippet.title,
+            language: selectedSnippet.language,
+            difficulty: selectedSnippet.difficulty,
+            wpm: Math.round(Number(serverResult.netWpm)),
+            netWpm: Math.round(Number(serverResult.netWpm)),
+            grossWpm: Math.round(Number(serverResult.grossWpm)),
+            accuracy: Math.round(Number(serverResult.accuracyPercent)),
+            accuracyPercent: Math.round(Number(serverResult.accuracyPercent)),
+            errors: serverResult.errorCount,
+            durationSeconds: Math.round((serverResult.durationMs || 0) / 1000),
+            durationMs: serverResult.durationMs,
+            date: serverResult.completedAt || new Date().toISOString(),
+            completedAt: serverResult.completedAt || new Date().toISOString(),
+          };
+          saveUserSession(verifiedSession, user?.id);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('devtype_session_completed', { detail: verifiedSession }));
+          }
         }
+
+        // Eagerly prefetch fresh dashboard, streaks, and sessions in the background
+        if (user?.id) {
+          dataCache.prefetchAll(user.id);
+        }
+
         activeSessionIdRef.current = null;
         activeSessionPromiseRef.current = null;
       } catch (err) {
@@ -411,6 +539,33 @@ export default function Practice() {
     },
     [saveSessionResults, selectedSnippet, keyErrorMap, errorLocations, syntaxErrors]
   );
+
+  // ── Handle Auto-Expiration for Timed Mode (60s benchmark) ──
+  const handleTimedExpiration = useCallback(() => {
+    const finalSpan = TIMED_DURATION_MS;
+    const finalMetrics = calculateTypingMetrics({
+      totalKeystrokes,
+      correctChars,
+      totalErrors,
+      uncorrectedErrors,
+      elapsedMs: finalSpan,
+      totalSnippetChars: tokenizedSnippet.totalChars,
+      currentCursorIndex: cursorIndex,
+    });
+    submitSessionCompletion(finalMetrics);
+  }, [
+    totalKeystrokes,
+    correctChars,
+    totalErrors,
+    uncorrectedErrors,
+    tokenizedSnippet.totalChars,
+    cursorIndex,
+    submitSessionCompletion,
+  ]);
+
+  useEffect(() => {
+    onTimedCompleteRef.current = handleTimedExpiration;
+  }, [handleTimedExpiration]);
 
   // ── Physical Key Press Visual & Audio Feedback ──
   const handlePhysicalKey = useCallback(
@@ -500,6 +655,8 @@ export default function Practice() {
       if (mode === 'Strict' && !isCorrect) {
         setTotalKeystrokes((prev) => prev + 1);
         setTotalErrors((prev) => prev + 1);
+        setStrictErrorPulse(true);
+        setTimeout(() => setStrictErrorPulse(false), 280);
         return;
       }
 
@@ -509,18 +666,49 @@ export default function Practice() {
         setTotalErrors((prev) => prev + 1);
       }
 
-      // Record in typed history
+      // Record in typed history and advance through leading indentation if newline
+      let finalIndex = cursorIndex + 1;
+      let indentSpaces = 0;
+      const autoIndentItems = [];
+
+      if (key === '\n' && isCorrect && finalIndex < flatChars.length) {
+        const nextLineNum = flatChars[finalIndex].lineIndex;
+        while (
+          finalIndex < flatChars.length &&
+          flatChars[finalIndex].lineIndex === nextLineNum &&
+          (flatChars[finalIndex].char === ' ' || flatChars[finalIndex].char === '\t')
+        ) {
+          if (finalIndex + 1 < flatChars.length && flatChars[finalIndex + 1].isNewline && flatChars[finalIndex + 1].lineIndex === nextLineNum) {
+            autoIndentItems.push({ idx: finalIndex, item: { typedChar: flatChars[finalIndex].char, isCorrect: true, isAutoIndent: true } });
+            finalIndex++;
+            indentSpaces++;
+            break;
+          }
+          autoIndentItems.push({ idx: finalIndex, item: { typedChar: flatChars[finalIndex].char, isCorrect: true, isAutoIndent: true } });
+          finalIndex++;
+          indentSpaces++;
+        }
+      }
+
       setTypedHistory((prev) => {
         const next = [...prev];
         next[cursorIndex] = { typedChar: key, isCorrect };
+        for (const item of autoIndentItems) {
+          next[item.idx] = item.item;
+        }
         return next;
       });
 
-      const nextIndex = cursorIndex + 1;
-      setCursorIndex(nextIndex);
+      if (indentSpaces > 0) {
+        setTotalKeystrokes((prev) => prev + indentSpaces);
+        setCorrectChars((prev) => prev + indentSpaces);
+      }
+
+      setCursorIndex(finalIndex);
+      if (hintIndex !== null) setHintIndex(null);
 
       // Check for completion
-      if (nextIndex >= flatChars.length) {
+      if (finalIndex >= flatChars.length) {
         setSessionState('completed');
         const finalSpan = startTimeRef.current
           ? accumulatedMsRef.current + (Date.now() - startTimeRef.current)
@@ -528,13 +716,13 @@ export default function Practice() {
         setElapsedMs(finalSpan);
 
         const finalMetrics = calculateTypingMetrics({
-          totalKeystrokes: totalKeystrokes + 1,
-          correctChars: isCorrect ? correctChars + 1 : correctChars,
+          totalKeystrokes: totalKeystrokes + 1 + indentSpaces,
+          correctChars: (isCorrect ? correctChars + 1 : correctChars) + indentSpaces,
           totalErrors: !isCorrect ? totalErrors + 1 : totalErrors,
           uncorrectedErrors: !isCorrect ? uncorrectedErrors + 1 : uncorrectedErrors,
           elapsedMs: finalSpan,
           totalSnippetChars: flatChars.length,
-          currentCursorIndex: nextIndex,
+          currentCursorIndex: finalIndex,
         });
 
         submitSessionCompletion(finalMetrics);
@@ -559,18 +747,173 @@ export default function Practice() {
   const handleBackspace = useCallback(() => {
     if (sessionState === 'completed' || sessionState === 'paused' || cursorIndex <= 0) return;
 
-    setCursorIndex((prev) => Math.max(0, prev - 1));
+    const flatChars = tokenizedSnippet?.flatChars || [];
+    let newCursor = cursorIndex;
+    let countRemoved = 0;
+
+    // If preceding character was auto-indented, roll back auto-indented spaces AND the newline
+    if (typedHistory[newCursor - 1]?.isAutoIndent) {
+      while (newCursor > 0 && typedHistory[newCursor - 1]?.isAutoIndent) {
+        newCursor--;
+        countRemoved++;
+      }
+      // Also undo the newline that triggered the auto-indent
+      if (newCursor > 0 && flatChars[newCursor - 1]?.isNewline) {
+        newCursor--;
+        countRemoved++;
+      }
+      // And any trailing spaces that were auto-filled on that line
+      while (newCursor > 0 && typedHistory[newCursor - 1]?.isAutoIndent) {
+        newCursor--;
+        countRemoved++;
+      }
+
+      setTypedHistory((prev) => prev.slice(0, newCursor));
+      setCursorIndex(newCursor);
+      setCorrectChars((prev) => Math.max(0, prev - countRemoved));
+      setTotalKeystrokes((prev) => Math.max(0, prev - countRemoved));
+    } else {
+      setCursorIndex((prev) => Math.max(0, prev - 1));
+      setTypedHistory((prev) => {
+        const next = [...prev];
+        next.pop();
+        return next;
+      });
+    }
+  }, [sessionState, cursorIndex, typedHistory, tokenizedSnippet?.flatChars]);
+
+  // ── Keystroke Handler: Enter (Newline & Auto-Indent to Starting Letter) ──
+  const handleEnter = useCallback(() => {
+    if (sessionState === 'completed' || sessionState === 'paused') return;
+
+    const flatChars = tokenizedSnippet?.flatChars || [];
+    if (!flatChars || cursorIndex >= flatChars.length) return;
+
+    // Check if current char is \n OR if all characters from cursorIndex to the next \n are whitespace
+    let newlineIdx = cursorIndex;
+    let onlySpacesTillNewline = true;
+    while (newlineIdx < flatChars.length && !flatChars[newlineIdx].isNewline) {
+      if (flatChars[newlineIdx].char !== ' ' && flatChars[newlineIdx].char !== '\t') {
+        onlySpacesTillNewline = false;
+        break;
+      }
+      newlineIdx++;
+    }
+
+    // If user hit Enter in the middle of code (untyped non-whitespace characters remain on this line),
+    // delegate to standard handleKeyPress
+    if (!onlySpacesTillNewline || newlineIdx >= flatChars.length || !flatChars[newlineIdx].isNewline) {
+      handleKeyPress('\n');
+      return;
+    }
+
+    // Start timer on first valid keystroke
+    if (sessionState === 'idle') {
+      setSessionState('active');
+      startTimeRef.current = Date.now();
+      startServerSession();
+    }
+
+    setIsTyping(true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 900);
+
+    const historyUpdates = [];
+    let countAdded = 0;
+
+    // 1. Fill trailing spaces (if any)
+    for (let i = cursorIndex; i < newlineIdx; i++) {
+      historyUpdates.push({ idx: i, item: { typedChar: flatChars[i].char, isCorrect: true, isAutoIndent: true } });
+      countAdded++;
+    }
+
+    // 2. Fill newline
+    historyUpdates.push({ idx: newlineIdx, item: { typedChar: '\n', isCorrect: true } });
+    countAdded++;
+
+    // 3. Auto-indent next line: advance past all leading spaces/tabs to starting letter of code
+    const nextLineStartIdx = newlineIdx + 1;
+    let targetIdx = nextLineStartIdx;
+
+    if (nextLineStartIdx < flatChars.length) {
+      const nextLineNum = flatChars[nextLineStartIdx].lineIndex;
+      while (
+        targetIdx < flatChars.length &&
+        flatChars[targetIdx].lineIndex === nextLineNum &&
+        (flatChars[targetIdx].char === ' ' || flatChars[targetIdx].char === '\t')
+      ) {
+        // If the entire next line is just whitespace up to another newline, stop before that newline
+        if (targetIdx + 1 < flatChars.length && flatChars[targetIdx + 1].isNewline && flatChars[targetIdx + 1].lineIndex === nextLineNum) {
+          historyUpdates.push({ idx: targetIdx, item: { typedChar: flatChars[targetIdx].char, isCorrect: true, isAutoIndent: true } });
+          targetIdx++;
+          countAdded++;
+          break;
+        }
+        historyUpdates.push({ idx: targetIdx, item: { typedChar: flatChars[targetIdx].char, isCorrect: true, isAutoIndent: true } });
+        targetIdx++;
+        countAdded++;
+      }
+    }
+
+    setStreak((prev) => prev + 1);
+    setTotalKeystrokes((prev) => prev + countAdded);
+    setCorrectChars((prev) => prev + countAdded);
+
     setTypedHistory((prev) => {
       const next = [...prev];
-      next.pop();
+      for (const update of historyUpdates) {
+        next[update.idx] = update.item;
+      }
       return next;
     });
-  }, [sessionState, cursorIndex]);
 
-  // ── Keystroke Handler: Enter (Newline) ──
-  const handleEnter = useCallback(() => {
-    handleKeyPress('\n');
-  }, [handleKeyPress]);
+    setCursorIndex(targetIdx);
+    if (hintIndex !== null) setHintIndex(null);
+
+    // Track peak WPM
+    const currentSpan = startTimeRef.current
+      ? accumulatedMsRef.current + (Date.now() - startTimeRef.current)
+      : elapsedMs;
+    const minutes = currentSpan / 60000;
+    if (minutes > 0.05) {
+      const liveWpm = Math.round(Math.max(0, ((correctChars + countAdded) / 5) / minutes));
+      setPeakWpm((prev) => Math.max(prev, liveWpm));
+    }
+
+    // Check for completion
+    if (targetIdx >= flatChars.length) {
+      setSessionState('completed');
+      const finalSpan = startTimeRef.current
+        ? accumulatedMsRef.current + (Date.now() - startTimeRef.current)
+        : elapsedMs;
+      setElapsedMs(finalSpan);
+
+      const finalMetrics = calculateTypingMetrics({
+        totalKeystrokes: totalKeystrokes + countAdded,
+        correctChars: correctChars + countAdded,
+        totalErrors,
+        uncorrectedErrors,
+        elapsedMs: finalSpan,
+        totalSnippetChars: flatChars.length,
+        currentCursorIndex: targetIdx,
+      });
+
+      submitSessionCompletion(finalMetrics);
+    }
+  }, [
+    sessionState,
+    tokenizedSnippet?.flatChars,
+    cursorIndex,
+    totalKeystrokes,
+    correctChars,
+    totalErrors,
+    uncorrectedErrors,
+    elapsedMs,
+    hintIndex,
+    handleKeyPress,
+    startServerSession,
+    submitSessionCompletion,
+  ]);
 
   // ── Keystroke Handler: Tab (Indentation Helper) ──
   const handleTab = useCallback(() => {
@@ -677,36 +1020,76 @@ export default function Practice() {
   }, [sessionState, handlePauseResume]);
 
   // ── Next Snippet in Catalog ──
-  const handleNextSnippet = useCallback(async () => {
-    setResultsModalOpen(false);
-    try {
-      const result = await templateService.getTemplates({ page: 0, size: 24, sort: 'createdAt,desc' });
-      const items = result?.items || [];
-      if (items.length > 0) {
-        const currentIndex = items.findIndex(
-          (s) => s.id === selectedSnippet?.id || s.slug === selectedSnippet?.slug
-        );
-        const nextMeta =
-          currentIndex >= 0 && currentIndex < items.length - 1
-            ? items[currentIndex + 1]
-            : items[0];
+  const handleNextSnippet = useCallback(
+    async (action = 'next_template', customLang = null) => {
+      setResultsModalOpen(false);
+      try {
+        const currentLang = customLang || selectedSnippet?.language || 'C++';
 
-        const nextFull = await templateService.getTemplateById(nextMeta.slug || nextMeta.id);
-        const resolved = nextFull || nextMeta;
-        setSelectedSnippet(resolved);
-        navigate(`/practice?snippet=${resolved.slug || resolved.id}`, {
-          replace: true,
-          state: { snippet: resolved },
-        });
-        resetSession();
-      } else {
+        // Action A: Practice the SAME algorithm in the next programming language
+        if (action === 'next_language') {
+          const supported = ['C++', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C', 'Rust', 'Go'];
+          const curIdx = supported.findIndex((l) => l.toLowerCase() === currentLang.toLowerCase());
+          const nextLang = supported[(curIdx + 1) % supported.length];
+          const rawSlug = selectedSnippet?.slug || selectedSnippet?.id || 'binary-search';
+          const baseSlug = rawSlug.replace(/-(cpp|c|python|java|javascript|typescript|go|rust)$/i, '');
+          const localized = await templateService.getTemplateById(baseSlug, nextLang);
+          if (localized && localized.code) {
+            setSelectedSnippet(localized);
+            navigate(`/practice?snippet=${localized.slug || baseSlug}&lang=${encodeURIComponent(nextLang)}&lockLang=true`, {
+              replace: true,
+              state: { snippet: localized },
+            });
+            resetSession();
+            return;
+          }
+        }
+
+        // Action B: Advance to the NEXT algorithmic problem in the SAME language
+        const result = await templateService.getTemplates({ page: 0, size: 50, sort: 'createdAt,desc', language: currentLang });
+        const items = (result?.items || []).filter(
+          (item) => !currentLang || item.language?.toLowerCase() === currentLang.toLowerCase()
+        );
+
+        if (items.length > 0) {
+          const currentIndex = items.findIndex(
+            (s) => s.id === selectedSnippet?.id || s.slug === selectedSnippet?.slug
+          );
+          const nextMeta =
+            currentIndex >= 0 && currentIndex < items.length - 1
+              ? items[currentIndex + 1]
+              : items[0];
+
+          const nextFull = await templateService.getTemplateById(nextMeta.slug || nextMeta.id, currentLang);
+          const resolved = nextFull || nextMeta;
+          setSelectedSnippet(resolved);
+          navigate(`/practice?snippet=${resolved.slug || resolved.id}&lang=${encodeURIComponent(currentLang)}&lockLang=true`, {
+            replace: true,
+            state: { snippet: resolved },
+          });
+          resetSession();
+        } else {
+          navigate('/templates');
+        }
+      } catch (err) {
+        console.warn('Failed to cycle to next snippet:', err);
         navigate('/templates');
       }
-    } catch (err) {
-      console.warn('Failed to cycle to next snippet:', err);
-      navigate('/templates');
-    }
-  }, [selectedSnippet, navigate, resetSession]);
+    },
+    [selectedSnippet, navigate, resetSession]
+  );
+
+  // ── Language Switcher from Blueprint Card ──
+  const handleLanguageChange = useCallback(
+    (newLang) => {
+      localStorage.setItem('devtype_preferred_lang', newLang);
+      const rawSlug = selectedSnippet?.slug || selectedSnippet?.id || 'binary-search';
+      const baseSlug = rawSlug.replace(/-(cpp|c|python|java|javascript|typescript|go|rust)$/i, '');
+      navigate(`/practice?snippet=${baseSlug}&lang=${encodeURIComponent(newLang)}&lockLang=true`, { replace: true });
+      fetchSnippet(baseSlug, newLang);
+    },
+    [selectedSnippet, navigate, fetchSnippet]
+  );
 
   // ── Restart / Reset Handling ──
   const handleRestart = () => {
@@ -868,6 +1251,10 @@ export default function Practice() {
             onFocusChange={setIsFocused}
             isFocused={isFocused}
             onPhysicalKey={handlePhysicalKey}
+            strictErrorPulse={strictErrorPulse}
+            maskMap={maskMap}
+            hintIndex={hintIndex}
+            onRequestHint={handleRequestHint}
           />
 
           <VirtualKeyboard
@@ -881,9 +1268,14 @@ export default function Practice() {
           <SnippetBlueprintCard
             snippet={selectedSnippet}
             mode={mode}
+            practiceMode={practiceMode}
+            onRequestHint={handleRequestHint}
+            hintsUsed={hintsUsed}
             onSelectMode={setMode}
             onBrowseTemplates={() => navigate('/templates')}
+            onSelectLanguage={handleLanguageChange}
             isLanguageLocked={isLanguageLocked}
+            remainingSeconds={remainingSeconds}
           />
 
           <PracticeTelemetryCard
@@ -893,6 +1285,8 @@ export default function Practice() {
             syntaxErrors={syntaxErrors}
             isTyping={isTyping}
             soundEnabled={soundEnabled}
+            mode={mode}
+            remainingSeconds={remainingSeconds}
             onToggleSound={() => setSoundEnabled((prev) => !prev)}
             onReset={handleRestart}
             onBackToDashboard={handleQuit}

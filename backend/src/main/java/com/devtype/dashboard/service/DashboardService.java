@@ -57,7 +57,7 @@ public class DashboardService {
     /**
      * Builds the comprehensive dashboard telemetry summary for the authenticated user.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public DashboardSummaryResponse getDashboardSummary(Long userId) {
         DashboardSummaryResponse response = new DashboardSummaryResponse();
 
@@ -88,12 +88,15 @@ public class DashboardService {
             response.setTotalCharactersTyped(totalChars != null ? totalChars : 0L);
         }
 
-        // 2. Streaks calculation
-        DailyPracticeActivityService.StreakResult streaks = dailyPracticeActivityService.calculateStreaks(userId);
-        response.setCurrentStreak(streaks.currentStreak());
-        response.setBestStreak(streaks.bestStreak());
+        // 2 & 4. Single-roundtrip eager fetch for Streaks and Heatmap points
+        int currentYear = LocalDate.now(ZoneOffset.UTC).getYear();
+        DailyPracticeActivityService.StreakAndHeatmapResult streakAndHeatmap = dailyPracticeActivityService
+                .getStreaksAndHeatmap(userId, currentYear);
+        response.setCurrentStreak(streakAndHeatmap.streaks().currentStreak());
+        response.setBestStreak(streakAndHeatmap.streaks().bestStreak());
+        response.setDailyActivity(streakAndHeatmap.heatmap());
 
-        // 3. 5 most recent completed sessions
+        // 3. 5 most recent completed sessions (with eagerly loaded templates)
         List<PracticeSession> recentEntities = practiceSessionRepository
                 .findByUserIdAndStatusOrderByStartedAtDesc(userId, PracticeSessionStatus.COMPLETED, PageRequest.of(0, 5));
 
@@ -101,11 +104,6 @@ public class DashboardService {
                 .map(PracticeSessionResponse::fromEntity)
                 .toList();
         response.setRecentSessions(recentDtos);
-
-        // 4. Daily activity points for the current year's heatmap
-        int currentYear = LocalDate.now(ZoneOffset.UTC).getYear();
-        List<DailyActivityPointResponse> heatmapPoints = dailyPracticeActivityService.getHeatmapPoints(userId, currentYear);
-        response.setDailyActivity(heatmapPoints);
 
         // 5. XP and Level Progression
         User user = userRepository.findById(userId).orElse(null);

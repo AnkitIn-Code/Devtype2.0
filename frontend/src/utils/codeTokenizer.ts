@@ -36,7 +36,7 @@ export interface TokenizedSnippet {
 /**
  * Normalizes language name to Prism language grammar key.
  */
-function normalizeLang(lang: string): string {
+export function normalizeLang(lang: string): string {
   const map: Record<string, string> = {
     'c++': 'cpp',
     'cpp': 'cpp',

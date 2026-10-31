@@ -11,7 +11,10 @@
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
+    "katex": "^0.19.1",
     "lucide-react": "^1.57.0",
+    "marked": "^18.1.2",
+    "mermaid": "^12.2.0",
     "prismjs": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

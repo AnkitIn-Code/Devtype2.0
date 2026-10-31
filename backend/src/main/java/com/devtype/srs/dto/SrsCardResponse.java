@@ -12,14 +12,15 @@ public record SrsCardResponse(
         String language,
         int repetition,
         BigDecimal easeFactor,
-        int intervalDays,
+        Integer intervalDays,
+        boolean isMastered,
         Instant dueDate,
         Instant lastReviewedAt,
         int lastQualityScore,
         boolean isDue
 ) {
     public static SrsCardResponse fromEntity(SrsCard card) {
-        boolean due = card.getDueDate() == null || card.getDueDate().isBefore(Instant.now());
+        boolean due = !card.isMastered() && (card.getDueDate() == null || card.getDueDate().isBefore(Instant.now()));
         return new SrsCardResponse(
                 card.getId(),
                 card.getSnippetId(),
@@ -28,6 +29,7 @@ public record SrsCardResponse(
                 card.getRepetition(),
                 card.getEaseFactor(),
                 card.getIntervalDays(),
+                card.isMastered(),
                 card.getDueDate(),
                 card.getLastReviewedAt(),
                 card.getLastQualityScore(),

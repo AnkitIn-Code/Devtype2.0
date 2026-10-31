@@ -14,6 +14,10 @@ export default function CodePracticeEditor({
   onFocusChange,
   isFocused,
   onPhysicalKey,
+  strictErrorPulse = false,
+  maskMap = [],
+  hintIndex = null,
+  onRequestHint,
 }) {
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
@@ -63,6 +67,12 @@ export default function CodePracticeEditor({
         onPhysicalKey(e.code);
       }
 
+      if (e.key === 'F1') {
+        e.preventDefault();
+        onRequestHint?.();
+        return;
+      }
+
       if (sessionState === 'paused' || sessionState === 'completed') {
         return;
       }
@@ -101,7 +111,7 @@ export default function CodePracticeEditor({
         key === 'CapsLock' ||
         key === 'Escape' ||
         key.startsWith('Arrow') ||
-        key.startsWith('F') ||
+        (key.startsWith('F') && key !== 'F1') ||
         key === 'Home' ||
         key === 'End' ||
         key === 'PageUp' ||
@@ -112,90 +122,56 @@ export default function CodePracticeEditor({
         return;
       }
 
-      // Single character input
+      // Standard single character keystroke
       if (key.length === 1) {
         e.preventDefault();
         onKeyPress(key);
       }
     },
-    [sessionState, onBackspace, onTab, onEnter, onKeyPress, onPhysicalKey]
+    [sessionState, onPhysicalKey, onBackspace, onTab, onEnter, onKeyPress, onRequestHint]
   );
 
-  const handleContainerClick = () => {
-    if (hiddenInputRef.current && sessionState !== 'paused') {
-      hiddenInputRef.current.focus();
-    }
-  };
-
-  if (!tokenizedSnippet) {
-    return (
-      <div className="editor-loading">
-        <Terminal size={24} className="spin-icon" />
-        <span>Loading snippet...</span>
-      </div>
-    );
-  }
-
-  const { lines, flatChars } = tokenizedSnippet;
-
-  // Determine which line the cursor is currently on
-  const currentLineIndex =
-    cursorIndex < flatChars.length
-      ? flatChars[cursorIndex]?.lineIndex ?? 0
-      : lines.length - 1;
+  const lines = tokenizedSnippet?.lines || [];
+  const currentLineIndex = tokenizedSnippet?.flatChars?.[cursorIndex]?.lineNumber
+    ? tokenizedSnippet.flatChars[cursorIndex].lineNumber - 1
+    : 0;
 
   return (
     <div
-      className={`practice-editor-container ${isFocused ? 'is-focused' : 'is-unfocused'} ${
-        sessionState === 'paused' ? 'is-paused' : ''
-      }`}
-      onClick={handleContainerClick}
       ref={containerRef}
-      id="code-practice-editor"
+      className={`practice-editor-container ${!isFocused ? 'editor-unfocused' : ''}`}
+      onClick={() => {
+        hiddenInputRef.current?.focus();
+        onFocusChange?.(true);
+      }}
     >
-      {/* Hidden invisible input for capturing cross-platform keystrokes */}
-      <input
+      {/* Invisible textarea capturing all keyboard events */}
+      <textarea
         ref={hiddenInputRef}
-        type="text"
         className="editor-hidden-input"
-        onKeyDown={handleKeyDown}
-        onFocus={() => onFocusChange(true)}
-        onBlur={() => onFocusChange(false)}
-        autoFocus
+        autoCapitalize="off"
         autoComplete="off"
         autoCorrect="off"
-        autoCapitalize="off"
         spellCheck="false"
-        aria-label="Code typing input buffer"
+        onKeyDown={handleKeyDown}
+        onFocus={() => onFocusChange?.(true)}
+        onBlur={() => onFocusChange?.(false)}
+        aria-label="Code practice input buffer"
       />
 
-      {/* Editor Window Header Bar */}
-      <div className="editor-titlebar">
-        <div className="editor-dots">
-          <span className="dot dot-red" />
-          <span className="dot dot-yellow" />
-          <span className="dot dot-green" />
-        </div>
-        <div className="editor-filename">
-          <Terminal size={13} className="editor-lang-icon" />
-          <span>{tokenizedSnippet.rawCode ? 'practice_snippet' : 'code'}</span>
-        </div>
-        <div className="editor-line-indicator">
-          Line {currentLineIndex + 1} of {lines.length}
-        </div>
-      </div>
-
-      {/* Unfocused Overlay Prompt */}
-      {!isFocused && sessionState !== 'paused' && sessionState !== 'completed' && (
-        <div className="editor-focus-banner" onClick={handleContainerClick}>
-          <MousePointerClick size={16} />
-          <span>Click to focus editor &amp; continue typing</span>
+      {/* Unfocused Banner Overlay */}
+      {!isFocused && sessionState !== 'completed' && (
+        <div className="editor-focus-overlay animate-fade-in">
+          <div className="focus-prompt-pill">
+            <MousePointerClick size={16} className="prompt-icon" />
+            <span>Click anywhere or press any key to focus editor</span>
+          </div>
         </div>
       )}
 
-      {/* Paused Overlay */}
+      {/* Paused State Overlay */}
       {sessionState === 'paused' && (
-        <div className="editor-paused-overlay">
+        <div className="editor-paused-backdrop animate-fade-in">
           <PauseCircle size={42} className="paused-icon" />
           <h3>Practice Paused</h3>
           <p>Press <strong>Resume</strong> or hit <strong>Esc</strong> to continue</p>
@@ -225,6 +201,8 @@ export default function CodePracticeEditor({
                     const gIdx = charData.globalIndex;
                     const isAtCursor = gIdx === cursorIndex;
                     const historyItem = typedHistory[gIdx];
+                    const isMasked = maskMap && maskMap[gIdx] && (!historyItem || !historyItem.isCorrect);
+                    const isHinted = hintIndex === gIdx;
 
                     let statusClass = 'char-untyped';
                     if (historyItem) {
@@ -236,7 +214,7 @@ export default function CodePracticeEditor({
                       return (
                         <span
                           key={gIdx}
-                          className={`char-span ${statusClass} ${isAtCursor ? 'has-cursor' : ''}`}
+                          className={`char-span ${statusClass} ${isAtCursor ? 'has-cursor' : ''} ${isAtCursor && strictErrorPulse ? 'char-strict-error' : ''}`}
                           data-idx={gIdx}
                         >
                           {isAtCursor && <span className="editor-caret" aria-hidden="true" />}
@@ -251,7 +229,7 @@ export default function CodePracticeEditor({
                       return (
                         <span
                           key={gIdx}
-                          className={`char-span char-space ${statusClass} ${isAtCursor ? 'has-cursor' : ''}`}
+                          className={`char-span char-space ${statusClass} ${isAtCursor ? 'has-cursor' : ''} ${isAtCursor && strictErrorPulse ? 'char-strict-error' : ''}`}
                           data-idx={gIdx}
                         >
                           {isAtCursor && <span className="editor-caret" aria-hidden="true" />}
@@ -261,12 +239,28 @@ export default function CodePracticeEditor({
                       );
                     }
 
+                    // Cloze / Blind masked character
+                    if (isMasked) {
+                      return (
+                        <span
+                          key={gIdx}
+                          className={`char-span char-masked ${isHinted ? 'char-hinted' : ''} ${statusClass} ${
+                            isAtCursor ? 'has-cursor char-cursor-highlight' : ''
+                          } ${isAtCursor && strictErrorPulse ? 'char-strict-error' : ''}`}
+                          data-idx={gIdx}
+                        >
+                          {isAtCursor && <span className="editor-caret" aria-hidden="true" />}
+                          {isHinted ? charData.char : '·'}
+                        </span>
+                      );
+                    }
+
                     return (
                       <span
                         key={gIdx}
                         className={`char-span token-${charData.tokenType} ${statusClass} ${
                           isAtCursor ? 'has-cursor char-cursor-highlight' : ''
-                        }`}
+                        } ${isAtCursor && strictErrorPulse ? 'char-strict-error' : ''}`}
                         data-idx={gIdx}
                       >
                         {isAtCursor && <span className="editor-caret" aria-hidden="true" />}

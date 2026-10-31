@@ -1,10 +1,11 @@
 // src/components/practice/PracticeResultsModal.jsx
 import { useEffect, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import confetti from 'canvas-confetti';
 import {
   Trophy, RotateCcw, ArrowRight, LayoutDashboard,
   Zap, Target, Clock, Star, CheckCircle, ShieldCheck,
-  Flame, Code2, BarChart3, AlertCircle
+  Flame, Code2, BarChart3, AlertCircle, Languages
 } from 'lucide-react';
 import { getPerformanceTier } from '../../utils/typingMetrics';
 import KeyHeatmap from '../reports/KeyHeatmap';
@@ -22,7 +23,7 @@ export default function PracticeResultsModal({
 }) {
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'heatmap' | 'template'
 
-  // Fire celebration confetti when modal opens
+  // Fire celebration confetti when modal opens & lock body overflow
   useEffect(() => {
     if (isOpen) {
       confetti({
@@ -32,6 +33,11 @@ export default function PracticeResultsModal({
         colors: ['#2563EB', '#38BDF8', '#10B981', '#F59E0B', '#E11D48'],
       });
       setActiveTab('overview');
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
     }
   }, [isOpen]);
 
@@ -53,8 +59,8 @@ export default function PracticeResultsModal({
   const tier = getPerformanceTier(metrics.netWpm, metrics.accuracy);
   const errorCount = metrics.errorCount || resolvedErrorLocations.length || 0;
 
-  return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  return createPortal(
+    <div className="modal-backdrop-portal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div className="results-modal-panel">
         {/* Header Ribbon with Achievement Badge */}
         <div className="results-header">
@@ -118,50 +124,141 @@ export default function PracticeResultsModal({
           )}
         </div>
 
-        {/* Level Progression Progress Bar (When returned by backend) */}
-        {metrics.currentLevel != null && (
-          <div
-            style={{
-              margin: '12px 0 16px',
-              padding: '12px 14px',
-              borderRadius: 10,
-              background: 'rgba(37, 99, 235, 0.06)',
-              border: '1px solid rgba(37, 99, 235, 0.18)',
-            }}
+        {/* ── Sub-Navigation Tabs: Overview | Key Heatmap | Error Locations ── */}
+        <div className="results-tabs-bar" style={{ width: '100%', maxWidth: 720, margin: '14px 0 18px' }}>
+          <button
+            type="button"
+            className={`results-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+            onClick={() => setActiveTab('overview')}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--brand)' }}>
-                Level {metrics.currentLevel}
-              </span>
-              <span style={{ fontSize: '0.78rem', color: 'var(--t3)' }}>
-                {(metrics.totalXp || 0).toLocaleString()} / {(metrics.nextLevelXp || 200).toLocaleString()} XP ({metrics.levelProgressPercent || 0}%)
-              </span>
+            <BarChart3 size={15} />
+            <span>Performance Overview</span>
+          </button>
+          <button
+            type="button"
+            className={`results-tab-btn ${activeTab === 'heatmap' ? 'active' : ''}`}
+            onClick={() => setActiveTab('heatmap')}
+          >
+            <Flame size={15} />
+            <span>Key Error Heatmap</span>
+            {errorCount > 0 && <span className="results-tab-badge">{errorCount}</span>}
+          </button>
+          <button
+            type="button"
+            className={`results-tab-btn ${activeTab === 'template' ? 'active' : ''}`}
+            onClick={() => setActiveTab('template')}
+          >
+            <Code2 size={15} />
+            <span>Template Error Places</span>
+            {resolvedErrorLocations.length > 0 && (
+              <span className="results-tab-badge">{resolvedErrorLocations.length}</span>
+            )}
+          </button>
+        </div>
+
+        {/* ── Tab Content (Shown Above Achievements) ── */}
+        <div style={{ width: '100%', minHeight: 280, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          {activeTab === 'overview' && (
+            <div className="results-metrics-grid" style={{ width: '100%' }}>
+              {/* Net WPM */}
+              <div className="results-metric-card">
+                <div className="results-metric-top">
+                  <Zap size={20} color="#2563EB" />
+                  <span className="results-metric-lbl">Net Speed</span>
+                </div>
+                <div className="results-metric-val">
+                  {metrics.netWpm}
+                  <span className="results-val-unit">WPM</span>
+                </div>
+                <div className="results-metric-sub">
+                  {metrics.grossWpm} Gross WPM {metrics.peakWpm ? `• Peak ${metrics.peakWpm} WPM` : ''}
+                </div>
+              </div>
+
+              {/* Accuracy */}
+              <div className="results-metric-card">
+                <div className="results-metric-top">
+                  <Target size={20} color="#059669" />
+                  <span className="results-metric-lbl">Accuracy</span>
+                </div>
+                <div className="results-metric-val">
+                  {metrics.accuracy}
+                  <span className="results-val-unit">%</span>
+                </div>
+                <div className="results-metric-sub">
+                  {metrics.errorCount === 0 ? 'Flawless precision' : `${metrics.errorCount} total errors recorded`}
+                </div>
+              </div>
+
+              {/* Elapsed Time */}
+              <div className="results-metric-card">
+                <div className="results-metric-top">
+                  <Clock size={20} color="#D97706" />
+                  <span className="results-metric-lbl">Time</span>
+                </div>
+                <div className="results-metric-val">
+                  {metrics.formattedTime || `${metrics.elapsedSeconds || 0}s`}
+                </div>
+                <div className="results-metric-sub">
+                  {metrics.elapsedSeconds}s total duration
+                </div>
+              </div>
+
+              {/* Characters Typed */}
+              <div className="results-metric-card">
+                <div className="results-metric-top">
+                  <CheckCircle size={20} color="#7C3AED" />
+                  <span className="results-metric-lbl">Characters</span>
+                </div>
+                <div className="results-metric-val">
+                  {snippet?.code?.length || templateCode.length || 0}
+                </div>
+                <div className="results-metric-sub">
+                  100% completed
+                </div>
+              </div>
             </div>
-            <div className="xp-bar" style={{ height: 6, background: 'rgba(0, 0, 0, 0.08)' }}>
-              <div
-                className="xp-bar-fill"
-                style={{ width: `${Math.min(100, Math.max(0, metrics.levelProgressPercent || 0))}%` }}
+          )}
+
+          {activeTab === 'heatmap' && (
+            <div className="results-diagnostic-section" style={{ width: '100%' }}>
+              <KeyHeatmap
+                keyErrorMap={resolvedKeyErrorMap}
+                totalErrors={errorCount}
               />
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Newly Unlocked Achievements (Milestones) */}
+          {activeTab === 'template' && (
+            <div className="results-diagnostic-section" style={{ width: '100%' }}>
+              <TemplateErrorLocations
+                code={templateCode}
+                language={snippet?.language || 'javascript'}
+                errorLocations={resolvedErrorLocations}
+                syntaxErrors={metrics.syntaxErrors}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* ── Newly Unlocked Achievements & Milestones (Positioned Below Report) ── */}
         {metrics.newlyUnlockedAchievements && metrics.newlyUnlockedAchievements.length > 0 && (
           <div
             style={{
-              margin: '12px 0 16px',
-              padding: '12px 14px',
-              borderRadius: 10,
+              width: '100%',
+              margin: '20px 0 12px',
+              padding: '14px 18px',
+              borderRadius: 12,
               background: 'rgba(245, 158, 11, 0.08)',
-              border: '1px solid rgba(245, 158, 11, 0.28)',
+              border: '1.5px solid rgba(245, 158, 11, 0.35)',
+              textAlign: 'left',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: '#D97706', fontWeight: 700, fontSize: '0.85rem' }}>
-              <Trophy size={16} />
-              <span>Newly Unlocked Achievement{metrics.newlyUnlockedAchievements.length > 1 ? 's' : ''}!</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: '#D97706', fontWeight: 800, fontSize: '0.92rem' }}>
+              <Trophy size={18} />
+              <span>Newly Unlocked Milestone Achievement{metrics.newlyUnlockedAchievements.length > 1 ? 's' : ''}!</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
               {metrics.newlyUnlockedAchievements.map((ach) => (
                 <div
                   key={ach.id || ach.code}
@@ -169,27 +266,30 @@ export default function PracticeResultsModal({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '6px 10px',
-                    borderRadius: 8,
-                    background: 'rgba(255, 255, 255, 0.7)',
-                    border: '1px solid rgba(0, 0, 0, 0.06)',
+                    padding: '8px 12px',
+                    borderRadius: 10,
+                    background: 'rgba(255, 255, 255, 0.85)',
+                    border: '1px solid rgba(245, 158, 11, 0.2)',
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--t1)' }}>{ach.name}</div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--t3)' }}>{ach.description}</div>
+                    <div style={{ fontWeight: 800, fontSize: '0.86rem', color: 'var(--t1)' }}>{ach.name}</div>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--t3)' }}>{ach.description}</div>
                   </div>
                   <div
                     style={{
-                      fontSize: '0.74rem',
-                      fontWeight: 700,
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
                       color: '#D97706',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: 2,
+                      gap: 3,
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      padding: '3px 8px',
+                      borderRadius: 10,
                     }}
                   >
-                    <Star size={11} fill="currentColor" />
+                    <Star size={12} fill="currentColor" />
                     +{ach.rewardXp || 50} XP
                   </div>
                 </div>
@@ -198,124 +298,40 @@ export default function PracticeResultsModal({
           </div>
         )}
 
-        {/* ── Sub-Navigation Tabs: Overview | Key Heatmap | Error Locations ── */}
-        <div className="results-tabs-bar">
-          <button
-            type="button"
-            className={`results-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}
+        {/* Level Progression Progress Bar (Positioned Below Report) */}
+        {metrics.currentLevel != null && (
+          <div
+            style={{
+              width: '100%',
+              margin: '8px 0 16px',
+              padding: '12px 18px',
+              borderRadius: 12,
+              background: 'rgba(37, 99, 235, 0.05)',
+              border: '1px solid rgba(37, 99, 235, 0.18)',
+              textAlign: 'left',
+            }}
           >
-            <BarChart3 size={14} />
-            <span>Overview</span>
-          </button>
-          <button
-            type="button"
-            className={`results-tab-btn ${activeTab === 'heatmap' ? 'active' : ''}`}
-            onClick={() => setActiveTab('heatmap')}
-          >
-            <Flame size={14} />
-            <span>Key Heatmap</span>
-            {errorCount > 0 && <span className="results-tab-badge">{errorCount}</span>}
-          </button>
-          <button
-            type="button"
-            className={`results-tab-btn ${activeTab === 'template' ? 'active' : ''}`}
-            onClick={() => setActiveTab('template')}
-          >
-            <Code2 size={14} />
-            <span>Template Error Places</span>
-            {resolvedErrorLocations.length > 0 && (
-              <span className="results-tab-badge">{resolvedErrorLocations.length}</span>
-            )}
-          </button>
-        </div>
-
-        {/* ── Tab Content ── */}
-        {activeTab === 'overview' && (
-          <div className="results-metrics-grid">
-            {/* Net WPM */}
-            <div className="results-metric-card">
-              <div className="results-metric-top">
-                <Zap size={18} color="#2563EB" />
-                <span className="results-metric-lbl">Net Speed</span>
-              </div>
-              <div className="results-metric-val">
-                {metrics.netWpm}
-                <span className="results-val-unit">WPM</span>
-              </div>
-              <div className="results-metric-sub">
-                {metrics.grossWpm} Gross WPM
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: '0.84rem', fontWeight: 800, color: 'var(--brand)' }}>
+                Level {metrics.currentLevel}
+              </span>
+              <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--t3)' }}>
+                {(metrics.totalXp || 0).toLocaleString()} / {(metrics.nextLevelXp || 200).toLocaleString()} XP ({metrics.levelProgressPercent || 0}%)
+              </span>
             </div>
-
-            {/* Accuracy */}
-            <div className="results-metric-card">
-              <div className="results-metric-top">
-                <Target size={18} color="#059669" />
-                <span className="results-metric-lbl">Accuracy</span>
-              </div>
-              <div className="results-metric-val">
-                {metrics.accuracy}
-                <span className="results-val-unit">%</span>
-              </div>
-              <div className="results-metric-sub">
-                {metrics.errorCount === 0 ? 'Flawless precision' : `${metrics.errorCount} total errors`}
-              </div>
+            <div className="xp-bar" style={{ height: 7, background: 'rgba(0, 0, 0, 0.08)', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                className="xp-bar-fill"
+                style={{ width: `${Math.min(100, Math.max(0, metrics.levelProgressPercent || 0))}%` }}
+              />
             </div>
-
-            {/* Elapsed Time */}
-            <div className="results-metric-card">
-              <div className="results-metric-top">
-                <Clock size={18} color="#D97706" />
-                <span className="results-metric-lbl">Time</span>
-              </div>
-              <div className="results-metric-val">
-                {metrics.formattedTime || `${metrics.elapsedSeconds || 0}s`}
-              </div>
-              <div className="results-metric-sub">
-                {metrics.elapsedSeconds}s total duration
-              </div>
-            </div>
-
-            {/* Characters Typed */}
-            <div className="results-metric-card">
-              <div className="results-metric-top">
-                <CheckCircle size={18} color="#7C3AED" />
-                <span className="results-metric-lbl">Characters</span>
-              </div>
-              <div className="results-metric-val">
-                {snippet?.code?.length || templateCode.length || 0}
-              </div>
-              <div className="results-metric-sub">
-                100% completed
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'heatmap' && (
-          <div className="results-diagnostic-section">
-            <KeyHeatmap
-              keyErrorMap={resolvedKeyErrorMap}
-              totalErrors={errorCount}
-            />
-          </div>
-        )}
-
-        {activeTab === 'template' && (
-          <div className="results-diagnostic-section">
-            <TemplateErrorLocations
-              code={templateCode}
-              language={snippet?.language || 'javascript'}
-              errorLocations={resolvedErrorLocations}
-              syntaxErrors={metrics.syntaxErrors}
-            />
           </div>
         )}
 
         {/* Action Buttons */}
-        <div className="results-actions">
+        <div className="results-actions" style={{ flexWrap: 'wrap', gap: 10, justifyContent: 'center', width: '100%', marginTop: 8 }}>
           <button
+            type="button"
             className="btn btn-ghost"
             onClick={onBackToDashboard}
             id="btn-results-dashboard"
@@ -325,24 +341,42 @@ export default function PracticeResultsModal({
           </button>
 
           <button
+            type="button"
             className="btn btn-secondary-glass"
             onClick={onRetry}
             id="btn-results-retry"
           >
             <RotateCcw size={15} />
-            <span>Retry Snippet</span>
+            <span>Retry Drill</span>
           </button>
 
+          {/* Practice in Next Language */}
           <button
+            type="button"
+            className="btn btn-secondary-glass"
+            onClick={() => onNextSnippet('next_language')}
+            title="Practice the same algorithmic drill in the next programming language"
+            id="btn-results-next-lang"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Languages size={15} />
+            <span>Try in Next Language</span>
+          </button>
+
+          {/* Next Drill in current language */}
+          <button
+            type="button"
             className="btn btn-primary"
-            onClick={onNextSnippet}
+            onClick={() => onNextSnippet('next_template')}
+            title={`Continue to the next problem in ${snippet?.language || 'current language'}`}
             id="btn-results-next"
           >
-            <span>Next Snippet</span>
+            <span>Next {snippet?.language || ''} Drill</span>
             <ArrowRight size={15} />
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

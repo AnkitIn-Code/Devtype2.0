@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { useShortcuts } from '../../utils/shortcutsStore';
 import { PREDEFINED_BLUEPRINTS } from '../../data/predefinedBlueprints';
-import srsService from '../../services/srsService';
 
 const LANG_COLORS = {
   'C++': { bg: 'rgba(59, 130, 246, 0.12)', text: '#60a5fa', border: 'rgba(59, 130, 246, 0.25)' },
@@ -53,15 +52,40 @@ function getLangBadgeStyle(lang) {
   };
 }
 
+function getTemplateKey(template) {
+  return template.key || template.slug || template.id || template.title?.toLowerCase().replace(/[^a-z0-9]/g, '-');
+}
+
+function getTemplateLanguages(template) {
+  if (Array.isArray(template.languages) && template.languages.length > 0) {
+    return template.languages;
+  }
+  if (template.codeByLanguage) {
+    return Object.keys(template.codeByLanguage);
+  }
+  if (template.variants) {
+    return Object.keys(template.variants);
+  }
+  return [template.language || 'C++'];
+}
+
+function getTemplateSlug(template, lang) {
+  if (template.slugs && template.slugs[lang]) {
+    return template.slugs[lang];
+  }
+  const key = getTemplateKey(template);
+  const cleanLang = (lang || 'cpp').toLowerCase().replace(/\+/g, 'p').replace(/[^a-z0-9]/g, '');
+  return `${key}-${cleanLang}`;
+}
+
 export default function PracticeShortcutsModal({ isOpen, onClose }) {
   const navigate = useNavigate();
   const { shortcuts, addShortcut, removeShortcut, reorderShortcuts, resetShortcuts, maxShortcuts } = useShortcuts();
 
-  const [activeTab, setActiveTab] = useState('templates'); // 'templates' | 'srs' | 'custom'
+  const [activeTab, setActiveTab] = useState('templates'); // 'templates' | 'custom'
   const [searchQuery, setSearchQuery] = useState('');
   const [templateLangSelections, setTemplateLangSelections] = useState({});
   const [customSnippets, setCustomSnippets] = useState([]);
-  const [srsCards, setSrsCards] = useState([]);
   const [bannerNotice, setBannerNotice] = useState(null);
 
   // Close on Escape key press
@@ -74,11 +98,10 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Load SRS and Custom Studio templates when modal opens
+  // Load Custom Studio templates when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
-    // Load custom studio items
     try {
       const raw = localStorage.getItem('devtype_custom_templates');
       if (raw) {
@@ -89,14 +112,6 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
       }
     } catch {
       setCustomSnippets([]);
-    }
-
-    // Load SRS cards
-    try {
-      const deck = srsService.getLocalDeck();
-      setSrsCards(Array.isArray(deck) ? deck : []);
-    } catch {
-      setSrsCards([]);
     }
   }, [isOpen]);
 
@@ -110,8 +125,15 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
 
   // Helper to check if a specific item is already pinned
   const isPinned = (targetId, lang) => {
+    if (!targetId || targetId === 'undefined') return false;
     return shortcuts.some((s) => {
-      if (s.targetId === targetId || s.id === targetId) {
+      if (!s.targetId || s.targetId === 'undefined') return false;
+      const targetMatch =
+        s.targetId === targetId ||
+        s.id === targetId ||
+        s.id === `shortcut-tpl-${targetId}` ||
+        (s.to && s.to.includes(`snippet=${targetId}`));
+      if (targetMatch) {
         if (!lang) return true;
         return String(s.lang).toLowerCase() === String(lang).toLowerCase();
       }
@@ -127,22 +149,11 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
       const matchTitle = t.title?.toLowerCase().includes(q);
       const matchCat = t.category?.toLowerCase().includes(q);
       const matchTags = Array.isArray(t.tags) && t.tags.some((tag) => tag.toLowerCase().includes(q));
-      const matchLang = Object.keys(t.variants || {}).some((l) => l.toLowerCase().includes(q));
+      const langs = getTemplateLanguages(t);
+      const matchLang = langs.some((l) => l.toLowerCase().includes(q));
       return matchTitle || matchCat || matchTags || matchLang;
     });
   }, [searchQuery]);
-
-  // Filtered SRS Cards
-  const filteredSrsCards = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return srsCards.filter((card) => {
-      if (!q) return true;
-      const matchTitle = card.title?.toLowerCase().includes(q);
-      const matchCat = card.category?.toLowerCase().includes(q);
-      const matchLang = card.language?.toLowerCase().includes(q);
-      return matchTitle || matchCat || matchLang;
-    });
-  }, [srsCards, searchQuery]);
 
   // Filtered Custom Snippets
   const filteredCustomSnippets = useMemo(() => {
@@ -158,10 +169,13 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
 
   // Handlers to Add Shortcuts
   const handleAddTemplate = (template) => {
-    const chosenLang = templateLangSelections[template.id] || (template.variants ? Object.keys(template.variants)[0] : 'C++');
-    const slug = template.slug || template.id;
+    const key = getTemplateKey(template);
+    const availableLangs = getTemplateLanguages(template);
+    const chosenLang = templateLangSelections[key] || availableLangs[0] || 'C++';
+    const slug = getTemplateSlug(template, chosenLang);
+
     const shortcutItem = {
-      id: `shortcut-tpl-${slug}-${chosenLang.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+      id: `shortcut-tpl-${slug}`,
       name: template.title,
       lang: chosenLang,
       source: 'template',
@@ -174,26 +188,6 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
       showNotice(res.message, true);
     } else {
       showNotice(`Pinned "${template.title}" (${chosenLang}) to shortcuts.`);
-    }
-  };
-
-  const handleAddSrsCard = (card) => {
-    const cardLang = card.language || 'C++';
-    const targetId = card.snippetId || String(card.id);
-    const shortcutItem = {
-      id: `shortcut-srs-${card.id}`,
-      name: card.title,
-      lang: cardLang,
-      source: 'srs',
-      targetId: targetId,
-      to: `/practice?snippet=${targetId}&lang=${encodeURIComponent(cardLang)}&srsCardId=${card.id}`,
-    };
-
-    const res = addShortcut(shortcutItem);
-    if (!res.success) {
-      showNotice(res.message, true);
-    } else {
-      showNotice(`Pinned SRS card "${card.title}" to shortcuts.`);
     }
   };
 
@@ -238,7 +232,7 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
                 Manage Practice Shortcuts
               </h2>
               <p className="shortcuts-modal-subtitle">
-                Pin verified drills from Algorithmic Blueprints, SRS Memory Decks, or Custom Studio.
+                Pin high-frequency drills from Algorithmic Blueprints or Custom Studio.
               </p>
             </div>
           </div>
@@ -365,7 +359,7 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
           )}
         </div>
 
-        {/* ── Section 2: Browse Templates Across 3 Separated Sources ── */}
+        {/* ── Section 2: Browse Templates Across Sources ── */}
         <div className="shortcuts-browse-section">
           {/* Tabs */}
           <div className="shortcuts-tabs-row">
@@ -376,14 +370,6 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
             >
               <FileCode2 size={15} />
               <span>Algorithmic Templates ({PREDEFINED_BLUEPRINTS.length})</span>
-            </button>
-            <button
-              type="button"
-              className={`shortcuts-tab-btn ${activeTab === 'srs' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('srs')}
-            >
-              <Brain size={15} />
-              <span>SRS Revision Deck ({srsCards.length})</span>
             </button>
             <button
               type="button"
@@ -404,8 +390,6 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
               placeholder={
                 activeTab === 'templates'
                   ? 'Search algorithmic blueprints by title, category, or language...'
-                  : activeTab === 'srs'
-                  ? 'Search SRS cards by title or category...'
                   : 'Search your custom blueprints...'
               }
               value={searchQuery}
@@ -432,12 +416,14 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
                 </div>
               ) : (
                 filteredTemplates.map((template) => {
-                  const availableLangs = template.variants ? Object.keys(template.variants) : ['C++'];
-                  const selectedLang = templateLangSelections[template.id] || availableLangs[0] || 'C++';
-                  const alreadyPinned = isPinned(template.slug || template.id, selectedLang);
+                  const key = getTemplateKey(template);
+                  const availableLangs = getTemplateLanguages(template);
+                  const selectedLang = templateLangSelections[key] || availableLangs[0] || 'C++';
+                  const slug = getTemplateSlug(template, selectedLang);
+                  const alreadyPinned = isPinned(slug, selectedLang);
 
                   return (
-                    <div key={template.id} className="shortcuts-catalog-card">
+                    <div key={key} className="shortcuts-catalog-card">
                       <div className="shortcuts-catalog-card-left">
                         <div className="shortcuts-catalog-title-row">
                           <span className="shortcuts-catalog-title">{template.title}</span>
@@ -456,7 +442,7 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
                             onChange={(e) =>
                               setTemplateLangSelections((prev) => ({
                                 ...prev,
-                                [template.id]: e.target.value,
+                                [key]: e.target.value,
                               }))
                             }
                             aria-label={`Language for ${template.title}`}
@@ -481,72 +467,6 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
                           type="button"
                           className={`btn btn-xs ${alreadyPinned ? 'btn-ghost' : 'btn-primary'} shortcuts-add-btn`}
                           onClick={() => handleAddTemplate(template)}
-                          disabled={alreadyPinned || shortcuts.length >= maxShortcuts}
-                        >
-                          {alreadyPinned ? (
-                            <>
-                              <Check size={12} />
-                              <span>Pinned</span>
-                            </>
-                          ) : (
-                            <>
-                              <Plus size={12} />
-                              <span>Pin Shortcut</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-
-          {/* Tab 2 Content: SRS Revision Deck */}
-          {activeTab === 'srs' && (
-            <div className="shortcuts-catalog-scroll">
-              {filteredSrsCards.length === 0 ? (
-                <div className="shortcuts-tab-empty">
-                  <Brain size={24} style={{ color: 'var(--brand)', marginBottom: 8 }} />
-                  <p>
-                    {searchQuery
-                      ? `No SRS recall cards found matching "${searchQuery}".`
-                      : 'No spaced repetition recall cards active in your deck yet.'}
-                  </p>
-                </div>
-              ) : (
-                filteredSrsCards.map((card) => {
-                  const cardLang = card.language || 'C++';
-                  const alreadyPinned = isPinned(card.snippetId || String(card.id), cardLang);
-
-                  return (
-                    <div key={card.id} className="shortcuts-catalog-card">
-                      <div className="shortcuts-catalog-card-left">
-                        <div className="shortcuts-catalog-title-row">
-                          <span className="shortcuts-catalog-title">{card.title}</span>
-                          <span className="shortcuts-catalog-category">{card.category || 'Algorithms & DSA'}</span>
-                          <span className="shortcuts-srs-interval-pill">
-                            <Clock size={11} /> Interval: {card.intervalDays || 1}d
-                          </span>
-                        </div>
-                        <p className="shortcuts-catalog-desc">
-                          Spaced Repetition drill (Repetition {card.repetition || 0} · Ease: {card.easeFactor || '2.50'})
-                        </p>
-                      </div>
-
-                      <div className="shortcuts-catalog-card-right">
-                        <span
-                          className="shortcuts-item-lang-pill"
-                          style={getLangBadgeStyle(cardLang)}
-                        >
-                          {cardLang}
-                        </span>
-
-                        <button
-                          type="button"
-                          className={`btn btn-xs ${alreadyPinned ? 'btn-ghost' : 'btn-primary'} shortcuts-add-btn`}
-                          onClick={() => handleAddSrsCard(card)}
                           disabled={alreadyPinned || shortcuts.length >= maxShortcuts}
                         >
                           {alreadyPinned ? (

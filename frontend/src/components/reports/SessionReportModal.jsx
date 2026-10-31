@@ -1,5 +1,6 @@
 // src/components/reports/SessionReportModal.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Flame, Code2, Zap, Target, Clock, ShieldCheck,
   RotateCcw, Calendar, AlertCircle, Award, CheckCircle
@@ -14,6 +15,16 @@ export default function SessionReportModal({
   onPracticeAgain,
 }) {
   const [activeTab, setActiveTab] = useState('heatmap'); // 'heatmap' | 'template'
+
+  useEffect(() => {
+    if (isOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [isOpen]);
 
   if (!isOpen || !session) return null;
 
@@ -38,8 +49,8 @@ export default function SessionReportModal({
   const grossWpm = session.grossWpm ?? netWpm;
   const accuracy = session.accuracy ?? session.accuracyPercent ?? 100;
 
-  return (
-    <div className="modal-backdrop reports-modal-backdrop" role="dialog" aria-modal="true">
+  return createPortal(
+    <div className="modal-backdrop reports-modal-backdrop" role="dialog" aria-modal="true" style={{ zIndex: 99999 }}>
       <div className="session-report-modal-panel">
         {/* ── Modal Header ── */}
         <div className="session-modal-hd">
@@ -184,6 +195,7 @@ export default function SessionReportModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

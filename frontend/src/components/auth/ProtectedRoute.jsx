@@ -6,6 +6,11 @@ export default function ProtectedRoute() {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
+  // Educational Theory pages are freely accessible to all developers and learners
+  if (location.pathname.startsWith('/theory')) {
+    return <Outlet />;
+  }
+
   if (isLoading) {
     return (
       <div className="auth-loading-overlay">

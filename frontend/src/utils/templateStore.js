@@ -56,10 +56,11 @@ export const DIFFICULTY_CONFIG = {
 /**
  * Retrieve user-created templates from localStorage safely.
  */
-export function getStoredCustomTemplates() {
+export function getStoredCustomTemplates(userId) {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = userId ? `devtype_custom_templates_${userId}` : STORAGE_KEY;
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -72,8 +73,8 @@ export function getStoredCustomTemplates() {
 /**
  * Get all available templates combining custom and default library.
  */
-export function getAllTemplates() {
-  const custom = getStoredCustomTemplates();
+export function getAllTemplates(userId) {
+  const custom = getStoredCustomTemplates(userId);
   // Ensure custom templates appear first, with an isCustom flag
   const customMarked = custom.map((t) => ({ ...t, isCustom: true }));
   return [...customMarked, ...SNIPPETS];
@@ -82,17 +83,17 @@ export function getAllTemplates() {
 /**
  * Find a template by ID in both custom and built-in libraries.
  */
-export function getTemplateById(id) {
+export function getTemplateById(id, userId) {
   if (!id) return null;
-  const all = getAllTemplates();
+  const all = getAllTemplates(userId);
   return all.find((t) => t.id === id) || null;
 }
 
 /**
  * Save a newly created custom template to localStorage.
  */
-export function saveCustomTemplate({ title, language, difficulty, description, code, tags = [] }) {
-  const custom = getStoredCustomTemplates();
+export function saveCustomTemplate({ title, language, difficulty, description, code, tags = [] }, userId) {
+  const custom = getStoredCustomTemplates(userId);
   const id = `custom-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const cleanCode = code.trim();
   const charCount = cleanCode.length;
@@ -105,7 +106,7 @@ export function saveCustomTemplate({ title, language, difficulty, description, c
     title: title.trim(),
     language,
     difficulty,
-    description: description.trim() || 'Custom community template.',
+    description: (description || '').trim() || 'Custom community template.',
     xp,
     code: cleanCode,
     popularity: 100, // Newly created gets top spotlight
@@ -115,8 +116,9 @@ export function saveCustomTemplate({ title, language, difficulty, description, c
   };
 
   const updated = [newTemplate, ...custom];
+  const key = userId ? `devtype_custom_templates_${userId}` : STORAGE_KEY;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(key, JSON.stringify(updated));
   } catch (err) {
     console.error('Failed to save custom template to localStorage', err);
   }
@@ -127,11 +129,12 @@ export function saveCustomTemplate({ title, language, difficulty, description, c
 /**
  * Delete a user-created template.
  */
-export function deleteCustomTemplate(id) {
-  const custom = getStoredCustomTemplates();
+export function deleteCustomTemplate(id, userId) {
+  const custom = getStoredCustomTemplates(userId);
   const updated = custom.filter((t) => t.id !== id);
+  const key = userId ? `devtype_custom_templates_${userId}` : STORAGE_KEY;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(key, JSON.stringify(updated));
   } catch (err) {
     console.error('Failed to remove custom template', err);
   }

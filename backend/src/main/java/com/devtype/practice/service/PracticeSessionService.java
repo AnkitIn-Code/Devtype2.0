@@ -29,12 +29,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import com.devtype.srs.service.SrsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Service managing the practice session lifecycle: initialization, client telemetry calculation,
  * session completion, abandonment, and user-specific historical session queries.
  */
 @Service
 public class PracticeSessionService {
+
+    private static final Logger log = LoggerFactory.getLogger(PracticeSessionService.class);
 
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
             "startedAt", "completedAt", "durationMs", "grossWpm", "netWpm",
@@ -48,6 +54,7 @@ public class PracticeSessionService {
     private final DailyPracticeActivityService dailyPracticeActivityService;
     private final com.devtype.xp.service.XpService xpService;
     private final com.devtype.achievement.service.AchievementService achievementService;
+    private final SrsService srsService;
 
     public PracticeSessionService(
             PracticeSessionRepository practiceSessionRepository,
@@ -56,7 +63,8 @@ public class PracticeSessionService {
             TypingMetricsCalculatorService typingMetricsCalculatorService,
             DailyPracticeActivityService dailyPracticeActivityService,
             com.devtype.xp.service.XpService xpService,
-            com.devtype.achievement.service.AchievementService achievementService
+            com.devtype.achievement.service.AchievementService achievementService,
+            SrsService srsService
     ) {
         this.practiceSessionRepository = practiceSessionRepository;
         this.practiceTemplateRepository = practiceTemplateRepository;
@@ -65,6 +73,7 @@ public class PracticeSessionService {
         this.dailyPracticeActivityService = dailyPracticeActivityService;
         this.xpService = xpService;
         this.achievementService = achievementService;
+        this.srsService = srsService;
     }
 
     /**
@@ -78,21 +87,16 @@ public class PracticeSessionService {
         PracticeTemplate template = null;
         PracticeSession session;
 
+        // 1. Attempt template lookup by ID first, then by slug
         if (request.getTemplateId() != null) {
-            template = practiceTemplateRepository.findByIdAndPublishedTrue(request.getTemplateId())
-                    .orElseThrow(() -> new ApiException("Practice template not found or is not published", HttpStatus.NOT_FOUND));
-            session = new PracticeSession(
-                    user,
-                    template,
-                    template.getTitle(),
-                    template.getLanguage(),
-                    template.getDifficulty().name(),
-                    Instant.now()
-            );
-            session.setSourceContentSnapshot(template.getContent());
-        } else if (request.getTemplateSlug() != null && !request.getTemplateSlug().isBlank()) {
-            template = practiceTemplateRepository.findBySlugAndPublishedTrue(request.getTemplateSlug().trim())
-                    .orElseThrow(() -> new ApiException("Practice template not found or is not published", HttpStatus.NOT_FOUND));
+            template = practiceTemplateRepository.findByIdAndPublishedTrue(request.getTemplateId()).orElse(null);
+        }
+        if (template == null && request.getTemplateSlug() != null && !request.getTemplateSlug().isBlank()) {
+            template = practiceTemplateRepository.findBySlugAndPublishedTrue(request.getTemplateSlug().trim()).orElse(null);
+        }
+
+        // 2. Initialize session from matched template, custom content, or robust fallback
+        if (template != null) {
             session = new PracticeSession(
                     user,
                     template,
@@ -104,22 +108,30 @@ public class PracticeSessionService {
             session.setSourceContentSnapshot(template.getContent());
         } else if (request.getCustomContent() != null && !request.getCustomContent().isBlank()) {
             String title = (request.getCustomTitle() != null && !request.getCustomTitle().isBlank())
-                    ? request.getCustomTitle().trim() : "AI Practice Drill";
+                    ? request.getCustomTitle().trim()
+                    : (request.getTemplateSlug() != null ? request.getTemplateSlug().trim() : "Practice Sprint");
             String lang = (request.getCustomLanguage() != null && !request.getCustomLanguage().isBlank())
-                    ? request.getCustomLanguage().trim() : "Custom";
+                    ? request.getCustomLanguage().trim() : "Code";
             String diff = (request.getCustomDifficulty() != null && !request.getCustomDifficulty().isBlank())
                     ? request.getCustomDifficulty().trim().toUpperCase() : "INTERMEDIATE";
-            session = new PracticeSession(
-                    user,
-                    null,
-                    title,
-                    lang,
-                    diff,
-                    Instant.now()
-            );
+            session = new PracticeSession(user, null, title, lang, diff, Instant.now());
             session.setSourceContentSnapshot(request.getCustomContent());
         } else {
-            throw new IllegalArgumentException("Template ID, slug, or custom content must be provided to start a session");
+            // Graceful fallback to first published template rather than failing
+            template = practiceTemplateRepository.findAll(PageRequest.of(0, 1)).getContent().stream().findFirst().orElse(null);
+            if (template != null) {
+                session = new PracticeSession(
+                        user,
+                        template,
+                        template.getTitle(),
+                        template.getLanguage(),
+                        template.getDifficulty().name(),
+                        Instant.now()
+                );
+                session.setSourceContentSnapshot(template.getContent());
+            } else {
+                throw new ApiException("No practice template available to initialize session", HttpStatus.NOT_FOUND);
+            }
         }
 
         session.setStatus(PracticeSessionStatus.IN_PROGRESS);
@@ -185,6 +197,21 @@ public class PracticeSessionService {
 
         // Evaluate achievements
         List<com.devtype.achievement.dto.AchievementResponse> newlyUnlocked = achievementService.evaluatePracticeAchievements(saved);
+
+        // SRS Spaced Repetition Matrix Evaluation (Only for platform templates, never Custom Studio)
+        if (session.getTemplate() != null) {
+            try {
+                srsService.recordTemplateSession(
+                        saved.getUser(),
+                        session.getTemplate(),
+                        metrics.netWpm().intValue(),
+                        metrics.accuracyPercent().doubleValue(),
+                        metrics.errorCount()
+                );
+            } catch (Exception srsEx) {
+                log.warn("Could not evaluate SRS benchmark for template {}: {}", session.getTemplate().getId(), srsEx.getMessage());
+            }
+        }
 
         PracticeSessionResponse response = PracticeSessionResponse.fromEntity(saved);
         if (xpResult != null) {

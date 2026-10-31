@@ -3,18 +3,23 @@ package com.devtype.user;
 import com.devtype.common.exception.ApiException;
 import com.devtype.common.exception.ResourceNotFoundException;
 import com.devtype.user.dto.UserProfileResponse;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Service managing user profile retrieval and account state verification.
+ * Service managing user profile retrieval, account state verification, and account deletion.
  */
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
     private final UserPreferencesRepository userPreferencesRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public UserService(UserRepository userRepository, UserPreferencesRepository userPreferencesRepository) {
         this.userRepository = userRepository;
@@ -104,5 +109,25 @@ public class UserService {
 
         UserPreferences saved = userPreferencesRepository.save(prefs);
         return com.devtype.user.dto.UserPreferencesResponse.fromEntity(saved);
+    }
+
+    /**
+     * Permanently deletes the authenticated user account and associated resources.
+     */
+    @Transactional
+    public void deleteCurrentUser(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User account not found"));
+
+        // Clean up unconstrained multiplayer results prior to cascading user deletion
+        try {
+            entityManager.createNativeQuery("DELETE FROM multiplayer_results WHERE user_id = :userId")
+                    .setParameter("userId", userId)
+                    .executeUpdate();
+        } catch (Exception ignored) {
+            // Non-critical if table is empty or unpopulated
+        }
+
+        userRepository.delete(user);
     }
 }

@@ -10,23 +10,93 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { dashboardService } from '../services/dashboardService';
 import { templateService } from '../services/templateService';
-import { srsService } from '../services/srsService';
+import { srsService, computeCardRetention } from '../services/srsService';
+import { dataCache } from '../services/dataCache';
+import { getSavedSessions } from '../utils/reportStore';
+import { mergeSessions, buildUnifiedDailyActivity, calculateConsistentStreak } from '../utils/sessionSync';
 import ActivityHeatmap from '../components/common/ActivityHeatmap';
+import { PREDEFINED_BLUEPRINTS, getPredefinedSnippet } from '../data/predefinedBlueprints';
+
+function getInitialPractice(userId, preferredLang) {
+  const lang = preferredLang || localStorage.getItem('devtype_preferred_lang') || 'C++';
+  try {
+    const cached = localStorage.getItem(`devtype_current_practice_${userId || 'guest'}`);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.title && parsed.template) {
+        return parsed;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    const saved = getSavedSessions(userId);
+    const completedKeys = new Set();
+    saved.forEach((s) => {
+      if (s.templateId) completedKeys.add(String(s.templateId));
+      if (s.templateSlug) completedKeys.add(String(s.templateSlug).toLowerCase());
+      if (s.snippetId) completedKeys.add(String(s.snippetId).toLowerCase());
+      if (s.templateTitle) completedKeys.add(String(s.templateTitle).toLowerCase());
+      if (s.snippetTitle) completedKeys.add(String(s.snippetTitle).toLowerCase());
+      if (s.title) completedKeys.add(String(s.title).toLowerCase());
+    });
+
+    for (const bp of PREDEFINED_BLUEPRINTS) {
+      const key = bp.key.toLowerCase();
+      const title = bp.title.toLowerCase();
+      if (!completedKeys.has(key) && !completedKeys.has(title)) {
+        const snippet = getPredefinedSnippet(bp.key, lang);
+        if (snippet) {
+          const isResume = saved.length > 0;
+          return {
+            template: snippet,
+            title: isResume ? `Next: ${snippet.title}` : `Current Practice: ${snippet.title}`,
+            language: lang,
+            difficulty: bp.difficulty || 'Intermediate',
+            sub: isResume
+              ? 'Pick up where you left off. Next template in your sequence.'
+              : 'Start with your first practice template to build typing speed.',
+            rawCode: snippet.code || '',
+            chipText: isResume ? 'Next in Sequence' : 'First Lesson',
+            btnText: isResume ? 'Resume Practice' : 'Start Typing',
+            statusHint: isResume ? 'Ready to continue' : 'Welcome to DevType',
+            statusSub: isResume
+              ? `Continue your practice streak with ${lang}`
+              : 'Start typing to begin your interactive code sprint.',
+          };
+        }
+      }
+    }
+  } catch (_) {}
+
+  const fallbackSnippet = getPredefinedSnippet('two-sum', lang) || getPredefinedSnippet('binary-search', lang);
+  return {
+    template: fallbackSnippet,
+    title: fallbackSnippet ? `Current Practice: ${fallbackSnippet.title}` : 'Current Practice',
+    language: lang,
+    difficulty: fallbackSnippet?.difficulty || 'Intermediate',
+    sub: 'Continue your regular code typing drills.',
+    rawCode: fallbackSnippet?.code || '',
+    chipText: 'Next in Sequence',
+    btnText: 'Start Typing',
+    statusHint: 'Ready to continue',
+    statusSub: `Continue your practice streak with ${lang}`,
+  };
+}
 
 const DEFAULT_PRACTICE = {
-  title: 'Binary Search Algorithm',
+  title: 'Two Sum Problem',
   language: 'C++',
-  difficulty: 'Intermediate',
-  sub: 'Logarithmic O(log N) divide-and-conquer search pattern.',
-  rawCode: `int binarySearch(const vector<int>& nums, int target) {
-    int left = 0, right = nums.size() - 1;
-    while (left <= right) {
-        int mid = left + (right - left) / 2;
-        if (nums[mid] == target) return mid;
-        if (nums[mid] < target) left = mid + 1;
-        else right = mid - 1;
+  difficulty: 'Beginner',
+  sub: 'Optimal hash map lookup pattern for target sums.',
+  rawCode: `vector<int> twoSum(vector<int>& nums, int target) {
+    unordered_map<int, int> seen;
+    for (int i = 0; i < (int)nums.size(); ++i) {
+        int complement = target - nums[i];
+        if (seen.count(complement)) return {seen[complement], i};
+        seen[nums[i]] = i;
     }
-    return -1;
+    return {};
 }`,
 };
 
@@ -78,17 +148,57 @@ function StatCard({ icon: Icon, tone, label, value, sub, rightIcon: RightIcon })
 }
 
 /* ================================================================
+   CODE SYNTAX HIGHLIGHTER HELPER FOR CODE BLOCKS
+   ================================================================ */
+function highlightCodeLine(text) {
+  if (!text) return null;
+  // Normalize tabs to 4 spaces to preserve indentation accurately
+  const normalized = text.replace(/\t/g, '    ');
+  const tokens = [];
+  const regex = /(\/\/[^\n]*)|("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')|(\b(?:int|void|bool|char|double|float|long|vector|string|size_t|auto|const|return|if|else|while|for|do|break|continue|switch|case|default|class|struct|public|private|protected|virtual|template|typename|using|namespace|function|def|let|var|import|export|from|new|this|nullptr|null|true|false)\b)|(\b\d+\b)|([{}()[\],;.<>:=+\-*/&|!~?])|([a-zA-Z_]\w*)|(\s+)/g;
+
+  let match;
+  let keyIdx = 0;
+
+  while ((match = regex.exec(normalized)) !== null) {
+    const [full, comment, string, keyword, number, punct, identifier, space] = match;
+    if (comment) {
+      tokens.push(<span key={keyIdx++} style={{ color: '#94A3B8', fontStyle: 'italic', whiteSpace: 'pre' }}>{comment}</span>);
+    } else if (string) {
+      tokens.push(<span key={keyIdx++} style={{ color: '#4ADE80', whiteSpace: 'pre' }}>{string}</span>);
+    } else if (keyword) {
+      tokens.push(<span key={keyIdx++} style={{ color: '#C084FC', fontWeight: 600, whiteSpace: 'pre' }}>{keyword}</span>);
+    } else if (number) {
+      tokens.push(<span key={keyIdx++} style={{ color: '#FB923C', whiteSpace: 'pre' }}>{number}</span>);
+    } else if (punct) {
+      tokens.push(<span key={keyIdx++} style={{ color: '#93C5FD', whiteSpace: 'pre' }}>{punct}</span>);
+    } else if (identifier) {
+      tokens.push(<span key={keyIdx++} style={{ color: '#F8FAFC', whiteSpace: 'pre' }}>{identifier}</span>);
+    } else {
+      tokens.push(<span key={keyIdx++} style={{ whiteSpace: 'pre' }}>{space}</span>);
+    }
+  }
+
+  if (tokens.length === 0) {
+    return <span style={{ color: '#F8FAFC', whiteSpace: 'pre' }}>{normalized}</span>;
+  }
+  return tokens;
+}
+
+/* ================================================================
    PRACTICE CARD
    ================================================================ */
-function PracticeCard({ p, onStart }) {
+function PracticeCard({ p, onStart, onSelectLang, currentLang }) {
   const rawCode = p?.rawCode || p?.content || (typeof p?.code === 'string' ? p.code : '');
   const displayLines = rawCode
     ? rawCode
         .split('\n')
         .map((l) => l.trimEnd())
         .filter((l) => l.trim().length > 0)
-        .slice(0, 5)
+        .slice(0, 6)
     : [];
+
+  const activeLang = p?.language || currentLang || 'C++';
 
   return (
     <div className="card practice-card">
@@ -103,29 +213,38 @@ function PracticeCard({ p, onStart }) {
           <p>{p?.sub || 'Continue your regular code typing drills.'}</p>
         </div>
         <div className="practice-meta">
-          <span className="badge badge-teal">
+          <div className="practice-lang-picker-wrap" title="Select target programming language">
             <Code2 size={13} />
-            {p?.language || 'C++'}
-          </span>
+            <select
+              className="practice-lang-select"
+              value={activeLang}
+              onChange={(e) => onSelectLang && onSelectLang(e.target.value)}
+              aria-label="Select target programming language"
+            >
+              {['C++', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C', 'Rust', 'Go'].map((lang) => (
+                <option key={lang} value={lang}>{lang}</option>
+              ))}
+            </select>
+          </div>
           <span className="badge badge-indigo">{p?.difficulty || 'Intermediate'}</span>
         </div>
       </div>
 
       <div className="practice-body">
-        <div className="code-block">
+        <div className="code-block" style={{ color: '#F8FAFC', whiteSpace: 'pre', overflowX: 'auto' }}>
           {displayLines.length > 0 ? (
             displayLines.map((lineText, idx) => (
-              <div key={idx} className="code-row">
-                <span className="code-ln">{idx + 1}</span>
-                <span className="code-tokens" style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.86rem', color: 'var(--t1)' }}>
-                  {lineText}
+              <div key={idx} className="code-row" style={{ display: 'flex', gap: '14px', alignItems: 'baseline', whiteSpace: 'pre' }}>
+                <span className="code-ln" style={{ userSelect: 'none', flexShrink: 0 }}>{idx + 1}</span>
+                <span className="code-tokens" style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.86rem', color: '#F8FAFC', whiteSpace: 'pre', tabSize: 4 }}>
+                  {highlightCodeLine(lineText)}
                 </span>
               </div>
             ))
           ) : (
-            <div className="code-row">
+            <div className="code-row" style={{ display: 'flex', gap: '14px', whiteSpace: 'pre' }}>
               <span className="code-ln">1</span>
-              <span className="code-tokens" style={{ color: 'var(--t2)' }}>// Ready to practice snippet</span>
+              <span className="code-tokens" style={{ color: '#94A3B8', whiteSpace: 'pre' }}>// Ready to practice snippet</span>
             </div>
           )}
           <div className="code-status-row">
@@ -321,106 +440,200 @@ function RecentSessions({ sessions = [], onViewAll }) {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [dashboardData, setDashboardData] = useState(null);
-  const [currentPractice, setCurrentPractice] = useState(null);
-  const [dueSrsCards, setDueSrsCards] = useState([]);
-  const [totalSrsCards, setTotalSrsCards] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // ── Synchronous Eager Hydration from Cache (Zero Loading Wait) ──
+  const cachedDash = useMemo(() => dataCache.getDashboard(user?.id), [user?.id]);
+  const [dashboardData, setDashboardData] = useState(() => cachedDash);
+  const [preferredLang, setPreferredLang] = useState(() => {
+    return localStorage.getItem('devtype_preferred_lang') || 'C++';
+  });
+  const [currentPractice, setCurrentPractice] = useState(() => getInitialPractice(user?.id, localStorage.getItem('devtype_preferred_lang') || 'C++'));
+  const [dueSrsCards, setDueSrsCards] = useState(() => dataCache.getDueCards(user?.id) || []);
+  const [totalSrsCards, setTotalSrsCards] = useState(() => dataCache.getDeck(user?.id)?.length || 0);
+  const [localSessions, setLocalSessions] = useState(() => getSavedSessions(user?.id));
+  const [isLoading, setIsLoading] = useState(() => !cachedDash);
   const [error, setError] = useState(null);
+
+  const fetchLiveDashboard = useCallback(() => {
+    dashboardService
+      .getDashboardSummary()
+      .then((data) => {
+        if (data) {
+          setDashboardData(data);
+          dataCache.setDashboard(user?.id, data);
+        }
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        if (!cachedDash) {
+          setError(err.message || 'Unable to connect to DevType server to retrieve dashboard stats.');
+        }
+        setIsLoading(false);
+      });
+  }, [user?.id, cachedDash]);
 
   const handleRetry = useCallback(() => {
     setIsLoading(true);
     setError(null);
-    dashboardService
-      .getDashboardSummary()
-      .then((data) => {
-        setDashboardData(data);
-      })
-      .catch((err) => {
-        setError(err.message || 'Unable to connect to DevType server to retrieve dashboard stats.');
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, []);
+    fetchLiveDashboard();
+  }, [fetchLiveDashboard]);
 
+  // ── Background Revalidation & Live Event Listeners ──
   useEffect(() => {
     let isMounted = true;
-    dashboardService
-      .getDashboardSummary()
-      .then((data) => {
-        if (isMounted) {
-          setDashboardData(data);
-          setIsLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(err.message || 'Unable to connect to DevType server to retrieve dashboard stats.');
-          setIsLoading(false);
-        }
-      });
+    fetchLiveDashboard();
 
     // Load SRS recall cards
-    srsService
-      .getDueCards()
-      .then((due) => {
-        if (isMounted) setDueSrsCards(due || []);
-      })
-      .catch(() => {});
+    const loadSrs = () => {
+      srsService
+        .getDueCards()
+        .then((due) => {
+          if (isMounted && due) {
+            setDueSrsCards(due);
+            dataCache.setDueCards(user?.id, due);
+          }
+        })
+        .catch(() => {});
 
-    srsService
-      .getDeck()
-      .then((deck) => {
-        if (isMounted) setTotalSrsCards(deck?.length || 0);
-      })
-      .catch(() => {});
+      srsService
+        .getDeck()
+        .then((deck) => {
+          if (isMounted && deck) {
+            setTotalSrsCards(deck.length);
+            dataCache.setDeck(user?.id, deck);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadSrs();
+
+    // Synchronize immediately on practice completion or cross-tab storage
+    const handleSessionCompleted = () => {
+      if (!isMounted) return;
+      setLocalSessions(getSavedSessions(user?.id));
+      fetchLiveDashboard();
+    };
+
+    const handleStorageUpdate = (e) => {
+      if (!isMounted) return;
+      if (!e.key || e.key.includes('devtype_sessions') || e.key.includes('devtype_auth')) {
+        setLocalSessions(getSavedSessions(user?.id));
+      }
+    };
+
+    const handleCacheRevalidated = () => {
+      if (!isMounted) return;
+      const freshDash = dataCache.getDashboard(user?.id);
+      if (freshDash) setDashboardData(freshDash);
+      const freshDue = dataCache.getDueCards(user?.id);
+      if (freshDue) setDueSrsCards(freshDue);
+      const freshDeck = dataCache.getDeck(user?.id);
+      if (freshDeck) setTotalSrsCards(freshDeck.length);
+    };
+
+    window.addEventListener('devtype_session_completed', handleSessionCompleted);
+    window.addEventListener('storage', handleStorageUpdate);
+    window.addEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+    window.addEventListener('devtype_srs_updated', loadSrs);
 
     return () => {
       isMounted = false;
+      window.removeEventListener('devtype_session_completed', handleSessionCompleted);
+      window.removeEventListener('storage', handleStorageUpdate);
+      window.removeEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+      window.removeEventListener('devtype_srs_updated', loadSrs);
     };
-  }, []);
+  }, [user?.id, fetchLiveDashboard]);
+
+  const handleLanguageChange = (newLang) => {
+    setPreferredLang(newLang);
+    localStorage.setItem('devtype_preferred_lang', newLang);
+    const eager = getInitialPractice(user?.id, newLang);
+    if (eager) setCurrentPractice(eager);
+  };
 
   // ── Determine Current Practice: Resume where left off, or First Template for new user ──
   useEffect(() => {
     let isMounted = true;
     templateService
       .getTemplates({ size: 100, sort: 'id,asc' })
-      .then((res) => {
+      .then(async (res) => {
         if (!isMounted) return;
         const templates = res?.items || res?.content || [];
         if (templates.length === 0) return;
 
         const recent = dashboardData?.recentSessions || [];
-        let chosenTemplate = templates[0];
+        const completedKeys = new Set();
+        recent.forEach((s) => {
+          if (s.templateId) completedKeys.add(String(s.templateId));
+          if (s.templateSlug) completedKeys.add(s.templateSlug.toLowerCase());
+          if (s.templateTitle) completedKeys.add(s.templateTitle.toLowerCase());
+        });
+
+        // Filter templates by preferred language if available
+        const normLang = preferredLang?.toLowerCase() || '';
+        const langTemplates = templates.filter(
+          (t) => !normLang || (t.language && t.language.toLowerCase() === normLang)
+        );
+        const pool = langTemplates.length > 0 ? langTemplates : templates;
+
+        // Find the first template in the pool that has NOT been completed recently
+        const uncompleted = pool.filter((t) => {
+          const idMatch = t.id && completedKeys.has(String(t.id));
+          const numMatch = t.numericId && completedKeys.has(String(t.numericId));
+          const slugMatch = t.slug && completedKeys.has(t.slug.toLowerCase());
+          const titleMatch = t.title && completedKeys.has(t.title.toLowerCase());
+          return !idMatch && !numMatch && !slugMatch && !titleMatch;
+        });
+
+        let chosenTemplate = null;
         let isResume = false;
 
-        if (recent.length > 0) {
+        if (uncompleted.length > 0) {
+          chosenTemplate = uncompleted[0];
+          isResume = recent.length > 0;
+        } else if (recent.length > 0) {
+          // If all templates in pool were completed, pick next in circular sequence
           const last = recent[0];
           const lastId = last.templateId;
-          const lastSlug = last.templateSlug;
-          const lastTitle = last.templateTitle;
+          const lastSlug = last.templateSlug?.toLowerCase();
+          const lastTitle = last.templateTitle?.toLowerCase();
 
-          const idx = templates.findIndex(
+          const idx = pool.findIndex(
             (t) =>
               (lastId && (t.numericId === lastId || t.id === lastId || String(t.id) === String(lastId))) ||
-              (lastSlug && t.slug === lastSlug) ||
-              (lastTitle && t.title === lastTitle)
+              (lastSlug && t.slug?.toLowerCase() === lastSlug) ||
+              (lastTitle && t.title?.toLowerCase() === lastTitle)
           );
 
-          if (idx >= 0 && idx + 1 < templates.length) {
-            chosenTemplate = templates[idx + 1];
-            isResume = true;
-          } else if (idx >= 0) {
-            chosenTemplate = templates[idx];
-            isResume = true;
+          if (idx >= 0 && idx + 1 < pool.length) {
+            chosenTemplate = pool[idx + 1];
+          } else {
+            chosenTemplate = pool[0];
           }
+          isResume = true;
+        } else {
+          chosenTemplate = pool[0];
+          isResume = false;
         }
 
-        setCurrentPractice({
+        // Ensure template code is loaded
+        if (chosenTemplate && !chosenTemplate.code && !chosenTemplate.content) {
+          try {
+            const fullTpl = await templateService.getTemplateById(chosenTemplate.slug || chosenTemplate.id);
+            if (fullTpl && (fullTpl.code || fullTpl.content) && isMounted) {
+              chosenTemplate = { ...chosenTemplate, ...fullTpl };
+            }
+          } catch (_) {}
+        }
+
+        if (!isMounted) return;
+
+        const practiceObj = {
           template: chosenTemplate,
           title: isResume ? `Next: ${chosenTemplate.title}` : `Current Practice: ${chosenTemplate.title}`,
-          language: chosenTemplate.language || 'Code',
+          language: chosenTemplate.language || preferredLang,
           difficulty: chosenTemplate.difficulty || 'Intermediate',
           sub: isResume
             ? 'Pick up where you left off. Next template in your sequence.'
@@ -430,9 +643,13 @@ export default function Dashboard() {
           btnText: isResume ? 'Resume Practice' : 'Start Typing',
           statusHint: isResume ? 'Ready to continue' : 'Welcome to DevType',
           statusSub: isResume
-            ? `Continue your practice streak with ${chosenTemplate.language}`
+            ? `Continue your practice streak with ${chosenTemplate.language || preferredLang}`
             : 'Start typing to begin your interactive code sprint.',
-        });
+        };
+        setCurrentPractice(practiceObj);
+        try {
+          localStorage.setItem(`devtype_current_practice_${user?.id || 'guest'}`, JSON.stringify(practiceObj));
+        } catch (_) {}
       })
       .catch((err) => {
         console.warn('Could not load current practice template:', err);
@@ -441,7 +658,7 @@ export default function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, [dashboardData]);
+  }, [dashboardData, preferredLang]);
 
   const currentHour = new Date().getHours();
   const greeting = currentHour < 12 ? 'Good morning' : currentHour < 17 ? 'Good afternoon' : 'Good evening';
@@ -454,56 +671,61 @@ export default function Dashboard() {
     year: 'numeric',
   });
 
-  const bestWpm = dashboardData?.bestWpm != null ? Math.round(Number(dashboardData.bestWpm)) : null;
-  const avgAccuracy = dashboardData?.averageAccuracy != null ? Math.round(Number(dashboardData.averageAccuracy)) : null;
-  const completedSessions = dashboardData?.totalCompletedSessions ?? 0;
-  const currentStreak = dashboardData?.currentStreak ?? 0;
-  const bestStreak = dashboardData?.bestStreak ?? 0;
-  const totalPracticeTimeSeconds = dashboardData?.totalPracticeTimeSeconds ?? 0;
-  const totalCharactersTyped = dashboardData?.totalCharactersTyped ?? 0;
-  const recentSessions = dashboardData?.recentSessions || [];
-  const dailyActivity = dashboardData?.dailyActivity || [];
+  // ── Unified Session Merging: Consistent across Dashboard, Profile, and Reports ──
+  const allUserSessions = useMemo(() => {
+    const serverRecent = dashboardData?.recentSessions || [];
+    return mergeSessions(serverRecent, localSessions);
+  }, [dashboardData?.recentSessions, localSessions]);
 
-  // Decaying recall archetypes to display in the queue
-  const displayDueCards = useMemo(() => {
-    if (dueSrsCards.length >= 3) {
-      return dueSrsCards.slice(0, 3);
+  const recentSessions = useMemo(() => {
+    return allUserSessions.slice(0, 5);
+  }, [allUserSessions]);
+
+  const dailyActivity = useMemo(() => {
+    return buildUnifiedDailyActivity(dashboardData?.dailyActivity || [], allUserSessions);
+  }, [dashboardData?.dailyActivity, allUserSessions]);
+
+  const currentStreak = useMemo(() => {
+    return calculateConsistentStreak(dashboardData?.currentStreak, dashboardData?.dailyActivity, allUserSessions);
+  }, [dashboardData?.currentStreak, dashboardData?.dailyActivity, allUserSessions]);
+
+  const completedSessions = useMemo(() => {
+    return Math.max(Number(dashboardData?.totalCompletedSessions) || 0, allUserSessions.length);
+  }, [dashboardData?.totalCompletedSessions, allUserSessions.length]);
+
+  const bestWpm = useMemo(() => {
+    const serverBest = Number(dashboardData?.bestWpm) || 0;
+    const sessionBests = allUserSessions.map((s) => Number(s.wpm || s.netWpm) || 0);
+    const maxVal = Math.max(serverBest, ...sessionBests);
+    return maxVal > 0 ? Math.round(maxVal) : (dashboardData?.bestWpm != null ? Math.round(Number(dashboardData.bestWpm)) : null);
+  }, [dashboardData?.bestWpm, allUserSessions]);
+
+  const avgAccuracy = useMemo(() => {
+    if (dashboardData?.averageAccuracy != null) {
+      return Math.round(Number(dashboardData.averageAccuracy));
     }
-    const sampleArchetypes = [
-      {
-        id: 'binary-search-cpp',
-        snippetId: 'binary-search-cpp',
-        title: 'Binary Search Algorithm',
-        language: 'cpp',
-        retention: 78,
-        desc: 'Logarithmic O(log N) divide-and-conquer search pattern.',
-        intervalDays: 1,
-        repetition: 0,
-      },
-      {
-        id: 'two-sum-cpp',
-        snippetId: 'two-sum-cpp',
-        title: 'Two Sum Map Resolution',
-        language: 'cpp',
-        retention: 84,
-        desc: 'One-pass hash table complement lookup in O(N) runtime.',
-        intervalDays: 6,
-        repetition: 1,
-      },
-      {
-        id: 'react-use-effect',
-        snippetId: 'react-use-effect',
-        title: 'React useEffect Hook',
-        language: 'javascript',
-        retention: 71,
-        desc: 'Lifecycle synchronization, cleanup handlers, and dependency arrays.',
-        intervalDays: 1,
-        repetition: 0,
-      },
-    ];
+    if (allUserSessions.length > 0) {
+      const sum = allUserSessions.reduce((acc, s) => acc + (s.accuracy || 100), 0);
+      return Math.round(sum / allUserSessions.length);
+    }
+    return null;
+  }, [dashboardData?.averageAccuracy, allUserSessions]);
 
-    if (dueSrsCards.length === 0) return sampleArchetypes;
-    return [...dueSrsCards, ...sampleArchetypes].slice(0, 3);
+  const totalPracticeTimeSeconds = useMemo(() => {
+    const serverTime = Number(dashboardData?.totalPracticeTimeSeconds) || 0;
+    const localTime = allUserSessions.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
+    return Math.max(serverTime, localTime);
+  }, [dashboardData?.totalPracticeTimeSeconds, allUserSessions]);
+
+  const totalCharactersTyped = useMemo(() => {
+    const serverChars = Number(dashboardData?.totalCharactersTyped) || 0;
+    const localChars = allUserSessions.reduce((sum, s) => sum + (s.totalCharacters || 0), 0);
+    return Math.max(serverChars, localChars);
+  }, [dashboardData?.totalCharactersTyped, allUserSessions]);
+
+  // Real decaying recall archetypes to display in the queue (accurately synced with Revision)
+  const displayDueCards = useMemo(() => {
+    return (dueSrsCards || []).slice(0, 3);
   }, [dueSrsCards]);
 
   return (
@@ -633,68 +855,95 @@ export default function Dashboard() {
             id="btn-srs-start-review"
           >
             <Sparkles size={14} />
-            <span>Start Full Review Session ({dueSrsCards.length || 3})</span>
+            <span>
+              {dueSrsCards.length > 0
+                ? `Start Full Review Session (${dueSrsCards.length})`
+                : `Browse Revision Deck (${totalSrsCards})`}
+            </span>
             <ArrowRight size={14} />
           </button>
         </div>
 
-        {/* 3 Interactive Cards */}
+        {/* Real Recall Queue Cards or Synchronized Empty State */}
         <div className="srs-recall-grid">
-          {displayDueCards.map((card, idx) => {
-            const lang = (card.language || 'cpp').toUpperCase();
-            const retentionPct = card.retention || (idx === 0 ? 74 : idx === 1 ? 82 : 68);
-            const isDueNow = !card.dueDate || new Date(card.dueDate) <= new Date();
-            const retentionClass =
-              retentionPct >= 80 ? 'retention-good' : retentionPct >= 70 ? 'retention-warn' : 'retention-danger';
-
-            return (
-              <div
-                key={card.snippetId || card.id || idx}
-                className="srs-recall-card"
-              >
-                <div>
-                  <div className="srs-card-top">
-                    <span className="srs-lang-tag">
-                      {lang}
-                    </span>
-                    <span className={`srs-retention-badge ${retentionClass}`}>
-                      Retention {retentionPct}%
-                    </span>
-                  </div>
-
-                  <h3 className="srs-card-title">
-                    {card.title || card.snippetTitle || card.snippetId}
-                  </h3>
-
-                  <p className="srs-card-desc">
-                    {card.desc || 'Algorithmic logic review to reinforce syntactical muscle memory.'}
-                  </p>
-                </div>
-
-                <div className="srs-card-footer">
-                  <span className="srs-due-label">
-                    {isDueNow ? 'Due Today' : 'Scheduled'}
-                  </span>
-                  <div className="srs-card-actions">
-                    <button
-                      onClick={() => navigate(`/practice?snippet=${card.snippetId || card.id}&mode=cloze`)}
-                      className="btn-srs-cloze"
-                      title="Cloze masked recall drill"
-                    >
-                      Cloze
-                    </button>
-                    <button
-                      onClick={() => navigate(`/practice?snippet=${card.snippetId || card.id}&mode=copy`)}
-                      className="btn-srs-drill"
-                      title="Full syntax speed drill"
-                    >
-                      Drill
-                    </button>
-                  </div>
-                </div>
+          {displayDueCards.length === 0 ? (
+            <div className="srs-empty-recall-state">
+              <div className="srs-empty-icon-box">
+                <CheckCircle2 size={24} className="text-emerald" />
               </div>
-            );
-          })}
+              <div className="srs-empty-content">
+                <h3 className="srs-empty-title">All Recall Archetypes Synchronized</h3>
+                <p className="srs-empty-desc">
+                  No syntax cards are currently due for SM-2 review. All scheduled patterns are up to date!
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/revision')}
+                className="btn btn-secondary btn-sm"
+                id="btn-srs-browse-deck"
+              >
+                <BookOpen size={14} />
+                <span>Browse Full Deck ({totalSrsCards})</span>
+              </button>
+            </div>
+          ) : (
+            displayDueCards.map((card, idx) => {
+              const lang = (card.language || 'Code').toUpperCase();
+              const retentionPct = computeCardRetention(card);
+              const isDueNow = !card.dueDate || new Date(card.dueDate) <= new Date();
+              const retentionClass =
+                retentionPct >= 80 ? 'retention-good' : retentionPct >= 70 ? 'retention-warn' : 'retention-danger';
+              const snippetKey = card.snippetId || card.id;
+
+              return (
+                <div
+                  key={snippetKey || idx}
+                  className="srs-recall-card"
+                >
+                  <div>
+                    <div className="srs-card-top">
+                      <span className="srs-lang-tag">
+                        {lang}
+                      </span>
+                      <span className={`srs-retention-badge ${retentionClass}`}>
+                        Retention {retentionPct}%
+                      </span>
+                    </div>
+
+                    <h3 className="srs-card-title">
+                      {card.title || card.snippetTitle || snippetKey}
+                    </h3>
+
+                    <p className="srs-card-desc">
+                      {card.category || card.desc || 'Algorithmic logic review to reinforce syntactical muscle memory.'}
+                    </p>
+                  </div>
+
+                  <div className="srs-card-footer">
+                    <span className="srs-due-label">
+                      {isDueNow ? 'Due Today' : 'Scheduled'}
+                    </span>
+                    <div className="srs-card-actions">
+                      <button
+                        onClick={() => navigate(`/practice?snippet=${snippetKey}&lang=${encodeURIComponent(card.language || '')}&mode=cloze`)}
+                        className="btn-srs-cloze"
+                        title="Cloze masked recall drill"
+                      >
+                        Cloze
+                      </button>
+                      <button
+                        onClick={() => navigate(`/practice?snippet=${snippetKey}&lang=${encodeURIComponent(card.language || '')}&mode=standard`)}
+                        className="btn-srs-drill"
+                        title="Full syntax speed drill"
+                      >
+                        Drill
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </section>
 
@@ -702,13 +951,18 @@ export default function Dashboard() {
       <div className="two-col">
         <PracticeCard
           p={currentPractice || DEFAULT_PRACTICE}
+          onSelectLang={handleLanguageChange}
+          currentLang={preferredLang}
           onStart={() => {
-            if (currentPractice?.template) {
-              navigate(`/practice?snippet=${currentPractice.template.slug || currentPractice.template.id}`, {
-                state: { snippet: currentPractice.template },
+            const templateToUse = currentPractice?.template;
+            const langToUse = currentPractice?.language || preferredLang;
+            if (templateToUse) {
+              const targetSlug = templateToUse.slug || templateToUse.id;
+              navigate(`/practice?snippet=${targetSlug}&lang=${encodeURIComponent(langToUse)}&lockLang=true`, {
+                state: { snippet: templateToUse },
               });
             } else {
-              navigate('/practice?snippet=binary-search-cpp');
+              navigate(`/practice?snippet=binary-search&lang=${encodeURIComponent(langToUse)}&lockLang=true`);
             }
           }}
         />

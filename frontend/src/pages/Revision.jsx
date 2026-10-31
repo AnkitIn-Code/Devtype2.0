@@ -19,62 +19,81 @@ import {
   ShieldCheck,
   Target,
   MoreHorizontal,
-  Play
+  Play,
+  EyeOff,
+  Flame
 } from 'lucide-react';
 import srsService from '../services/srsService';
+import { useAuth } from '../context/AuthContext';
+import { dataCache } from '../services/dataCache';
 
 export default function Revision() {
   const navigate = useNavigate();
-  const [deck, setDeck] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'due' | 'algo' | 'framework'
+  const { user } = useAuth();
+  const cachedDeck = dataCache.getDeck(user?.id);
+  const [deck, setDeck] = useState(() => cachedDeck || srsService.getLocalDeck());
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'due' | 'algo' | 'mastered'
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadDeck = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await srsService.getDeck();
-      setDeck(data || []);
+      if (data && Array.isArray(data) && data.length > 0) {
+        setDeck(data);
+        dataCache.setDeck(user?.id, data);
+      }
     } catch (err) {
       console.error('Failed to load SRS deck:', err);
-      setDeck(srsService.getLocalDeck());
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     loadDeck();
-  }, [loadDeck]);
+    const handleSrsUpdate = () => loadDeck();
+    const handleCacheRevalidated = () => {
+      const cached = dataCache.getDeck(user?.id);
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        setDeck(cached);
+      }
+    };
+    window.addEventListener('devtype_srs_updated', handleSrsUpdate);
+    window.addEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+    return () => {
+      window.removeEventListener('devtype_srs_updated', handleSrsUpdate);
+      window.removeEventListener('devtype_cache_revalidated', handleCacheRevalidated);
+    };
+  }, [loadDeck, user?.id]);
 
   const now = new Date();
   const dueCards = useMemo(() => {
-    return deck.filter((c) => !c.dueDate || new Date(c.dueDate) <= now);
+    return deck.filter((c) => !c.isMastered && (!c.dueDate || new Date(c.dueDate) <= now));
+  }, [deck]);
+
+  const masteredCards = useMemo(() => {
+    return deck.filter((c) => c.isMastered || c.intervalDays === null);
   }, [deck]);
 
   const filteredCards = useMemo(() => {
     return deck.filter((c) => {
       // Tab filter
-      if (activeTab === 'due' && (c.dueDate && new Date(c.dueDate) > now)) {
+      if (activeTab === 'due' && (c.isMastered || (c.dueDate && new Date(c.dueDate) > now))) {
+        return false;
+      }
+      if (activeTab === 'mastered' && !c.isMastered && c.intervalDays !== null) {
         return false;
       }
       if (activeTab === 'algo') {
         const isAlgo =
           (c.category || '').toLowerCase().includes('algo') ||
-          ['binary-search', 'two-sum', 'quick-sort', 'merge-sort', 'lru-cache'].some((k) =>
+          (c.category || '').toLowerCase().includes('foundation') ||
+          (c.category || '').toLowerCase().includes('structure') ||
+          ['binary-search', 'two-sum', 'quick-sort', 'merge-sort', 'lru-cache', 'cpp-fast-io', 'cp-'].some((k) =>
             (c.snippetId || '').toLowerCase().includes(k)
           );
         if (!isAlgo) return false;
-      }
-      if (activeTab === 'framework') {
-        const isFramework =
-          (c.category || '').toLowerCase().includes('framework') ||
-          (c.category || '').toLowerCase().includes('react') ||
-          (c.category || '').toLowerCase().includes('angular') ||
-          ['react', 'angular', 'hook', 'signal'].some((k) =>
-            (c.snippetId || '').toLowerCase().includes(k)
-          );
-        if (!isFramework) return false;
       }
 
       // Search query filter
@@ -83,7 +102,8 @@ export default function Revision() {
         const matchesTitle = (c.title || c.snippetTitle || '').toLowerCase().includes(q);
         const matchesLang = (c.language || '').toLowerCase().includes(q);
         const matchesId = (c.snippetId || '').toLowerCase().includes(q);
-        return matchesTitle || matchesLang || matchesId;
+        const matchesCat = (c.category || '').toLowerCase().includes(q);
+        return matchesTitle || matchesLang || matchesId || matchesCat;
       }
 
       return true;
@@ -96,16 +116,17 @@ export default function Revision() {
     navigate(`/practice?snippet=${id}&lang=${encodeURIComponent(lang)}&mode=${mode}`);
   };
 
-  // Retention index computation based on average ease factors and repetitions
+  // Retention index computation based on average ease factors, repetitions, and mastery
   const retentionIndex = useMemo(() => {
     if (deck.length === 0) return 92.4;
     const totalScore = deck.reduce((acc, c) => {
       const ef = c.easeFactor || 2.50;
       const rep = Math.min(5, c.repetition || 0);
-      return acc + (ef * 30 + rep * 4);
+      const masteryBonus = c.isMastered ? 12 : 0;
+      return acc + (ef * 26 + rep * 4 + masteryBonus);
     }, 0);
     const avg = totalScore / deck.length;
-    return Math.min(99.4, Math.max(70.0, avg)).toFixed(1);
+    return Math.min(99.6, Math.max(70.0, avg)).toFixed(1);
   }, [deck]);
 
   const avgEaseFactor = useMemo(() => {
@@ -125,7 +146,7 @@ export default function Revision() {
           </div>
           <h1 className="welcome-title">Active Recall &amp; Revision</h1>
           <p className="welcome-sub">
-            Reinforce decaying syntax patterns through scientifically scheduled spaced repetition drills.{' '}
+            Reinforce decaying algorithmic syntax and patterns through scientifically scheduled spaced repetition drills.{' '}
             <span className="text-primary font-semibold">
               {dueCards.length > 0 ? `${dueCards.length} cards due for recall today` : 'All scheduled cards are up to date'}
             </span>.
@@ -180,7 +201,7 @@ export default function Revision() {
             <div className="stat-num">{loading ? '...' : deck.length}</div>
             <div className="stat-label">Total Deck Size</div>
             <div className="stat-sub">
-              <span>Tracked algorithmic patterns</span>
+              <span>{masteredCards.length} permanently mastered</span>
             </div>
           </div>
         </div>
@@ -218,6 +239,51 @@ export default function Revision() {
             <div className="stat-sub">
               <span>SuperMemo difficulty multiplier</span>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 3-Tier Recall Modes Spotlight ── */}
+      <div className="card" style={{ padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <Sparkles size={16} color="var(--brand)" />
+          <h3 style={{ fontSize: '0.98rem', fontWeight: 800, color: 'var(--t1)', margin: 0 }}>
+            3-Tier Memory Recall System
+          </h3>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+          <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="badge badge-teal" style={{ fontSize: '0.68rem' }}>Tier 1</span>
+              <Play size={13} color="var(--brand)" />
+            </div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Standard Copy</div>
+            <p style={{ fontSize: '0.76rem', color: 'var(--t3)', margin: 0, lineHeight: 1.45 }}>
+              Full syntax visible with live keystroke highlights. Focus on finger dexterity and syntax cadences.
+            </p>
+          </div>
+
+          <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--brand)', position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="badge badge-teal" style={{ fontSize: '0.68rem', background: 'var(--brand)', color: '#fff' }}>Tier 2 &bull; Recommended</span>
+              <Eye size={13} color="var(--brand)" />
+            </div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Cloze Recall (Word Blanks)</div>
+            <p style={{ fontSize: '0.76rem', color: 'var(--t3)', margin: 0, lineHeight: 1.45 }}>
+              Every 10 lines of code, 2 key identifiers are blanked out. Tests targeted recall. Hit <kbd style={{ padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.1)', fontSize: '0.7rem' }}>F1</kbd> for subtle hints.
+            </p>
+          </div>
+
+          <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span className="badge badge-rose" style={{ fontSize: '0.68rem' }}>Tier 3</span>
+              <EyeOff size={13} color="#E11D48" />
+            </div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Blind Mode (Scaffold Recall)</div>
+            <p style={{ fontSize: '0.76rem', color: 'var(--t3)', margin: 0, lineHeight: 1.45 }}>
+              Signatures, comments, and structure remain visible while implementation code is masked. Reconstruct algorithmic solutions from memory.
+            </p>
           </div>
         </div>
       </div>
@@ -271,7 +337,7 @@ export default function Revision() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
             {dueCards.map((card) => {
               const lang = card.language || 'Code';
               return (
@@ -304,7 +370,7 @@ export default function Revision() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--t3)', margin: '8px 0' }}>
                       <span>Rep: <strong style={{ color: 'var(--t1)' }}>{card.repetition || 0}</strong></span>
                       <span>&bull;</span>
-                      <span>Interval: <strong style={{ color: 'var(--brand)' }}>{card.intervalDays || 1}d</strong></span>
+                      <span>Interval: <strong style={{ color: 'var(--brand)' }}>{card.intervalDays != null ? `${card.intervalDays}d` : 'Mastered'}</strong></span>
                       <span>&bull;</span>
                       <span>EF: <strong style={{ color: 'var(--t1)' }}>{(card.easeFactor || 2.5).toFixed(2)}</strong></span>
                     </div>
@@ -314,17 +380,25 @@ export default function Revision() {
                     <button
                       onClick={() => handleStartPractice(card, 'cloze')}
                       className="btn btn-primary btn-sm"
-                      style={{ flex: 1, justifyContent: 'center', height: 32 }}
+                      style={{ flex: 1.2, justifyContent: 'center', height: 32 }}
                     >
                       <Eye size={12} />
                       <span>Cloze Drill</span>
                     </button>
                     <button
-                      onClick={() => handleStartPractice(card, 'standard')}
+                      onClick={() => handleStartPractice(card, 'blind')}
                       className="btn btn-secondary-glass btn-sm"
-                      style={{ padding: '0 12px', height: 32 }}
+                      style={{ flex: 1, justifyContent: 'center', height: 32 }}
                     >
-                      <span>Recall</span>
+                      <EyeOff size={12} />
+                      <span>Blind</span>
+                    </button>
+                    <button
+                      onClick={() => handleStartPractice(card, 'copy')}
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '0 10px', height: 32 }}
+                    >
+                      <span>Copy</span>
                     </button>
                   </div>
                 </div>
@@ -364,8 +438,8 @@ export default function Revision() {
               {[
                 { id: 'all', label: 'All Cards' },
                 { id: 'due', label: `Due (${dueCards.length})` },
+                { id: 'mastered', label: `Mastered (${masteredCards.length})` },
                 { id: 'algo', label: 'Algorithms' },
-                { id: 'framework', label: 'Frameworks' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -388,7 +462,9 @@ export default function Revision() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {filteredCards.map((card) => {
-              const isDue = !card.dueDate || new Date(card.dueDate) <= now;
+              const isDue = !card.isMastered && (!card.dueDate || new Date(card.dueDate) <= now);
+              const isMastered = card.isMastered || card.intervalDays === null;
+
               return (
                 <div
                   key={card.id || card.snippetId}
@@ -420,10 +496,15 @@ export default function Revision() {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--t3)' }}>
                     <span>Rep: <strong style={{ color: 'var(--t1)' }}>{card.repetition || 0}</strong></span>
-                    <span>Interval: <strong style={{ color: 'var(--brand)' }}>{card.intervalDays || 1}d</strong></span>
+                    <span>
+                      Interval:{' '}
+                      <strong style={{ color: 'var(--brand)' }}>
+                        {isMastered ? 'Mastered' : `${card.intervalDays || 1}d`}
+                      </strong>
+                    </span>
                     <span>EF: <strong style={{ color: 'var(--t1)' }}>{(card.easeFactor || 2.5).toFixed(2)}</strong></span>
-                    <span className={`badge ${isDue ? 'badge-rose' : 'badge-teal'}`}>
-                      {isDue ? 'Due Today' : 'Mastered'}
+                    <span className={`badge ${isMastered ? 'badge-teal' : isDue ? 'badge-rose' : 'badge-teal'}`}>
+                      {isMastered ? 'Mastered' : isDue ? 'Due Today' : `${card.intervalDays}d`}
                     </span>
                   </div>
 
@@ -432,14 +513,25 @@ export default function Revision() {
                       onClick={() => handleStartPractice(card, 'cloze')}
                       className="btn btn-secondary-glass btn-sm"
                       style={{ height: 30 }}
+                      title="Practice with word cloze blanks"
                     >
                       <Eye size={12} />
                       <span>Cloze</span>
                     </button>
                     <button
-                      onClick={() => handleStartPractice(card, 'standard')}
+                      onClick={() => handleStartPractice(card, 'blind')}
+                      className="btn btn-secondary-glass btn-sm"
+                      style={{ height: 30 }}
+                      title="Practice blind scaffold recall"
+                    >
+                      <EyeOff size={12} />
+                      <span>Blind</span>
+                    </button>
+                    <button
+                      onClick={() => handleStartPractice(card, 'copy')}
                       className="btn btn-primary btn-sm"
                       style={{ height: 30 }}
+                      title="Standard practice"
                     >
                       <Play size={11} fill="currentColor" strokeWidth={0} />
                       <span>Review</span>

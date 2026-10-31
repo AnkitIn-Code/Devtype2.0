@@ -184,6 +184,12 @@ export const templateService = {
   async getTemplateById(idOrSlug, preferredLang = null) {
     if (!idOrSlug) return null;
 
+    // 1. Resolve from predefined blueprints first (fast 0ms sync, prevents 404s for standard blueprints)
+    const predefined = getPredefinedSnippet(idOrSlug, preferredLang);
+    if (predefined) {
+      return normalizeTemplate(predefined);
+    }
+
     try {
       const response = await apiFetch(`/api/v1/templates/${encodeURIComponent(idOrSlug)}`, {
         method: 'GET',
@@ -195,10 +201,15 @@ export const templateService = {
       // API call failed or returned 404
     }
 
-    // 1. Resolve from predefined blueprints (ensures C++ returns C++, Python returns Python)
-    const predefined = getPredefinedSnippet(idOrSlug, preferredLang);
-    if (predefined) {
-      return normalizeTemplate(predefined);
+    try {
+      const snippetRes = await apiFetch(`/api/v1/snippets/${encodeURIComponent(idOrSlug)}`, {
+        method: 'GET',
+      });
+      if (snippetRes?.code) {
+        return normalizeTemplate(snippetRes);
+      }
+    } catch (_) {
+      // Snippet call failed or returned 404
     }
 
     // 2. Resolve from static SNIPPETS catalog
@@ -219,8 +230,11 @@ export const templateService = {
       } catch (_) {}
     }
 
-    // 4. Default fallback: binary search in requested language
-    return normalizeTemplate(getPredefinedSnippet('binary-search', preferredLang || 'C++'));
+    // 4. Default fallback: only return binary search if specifically requested or empty
+    if (!idOrSlug || idOrSlug === 'binary-search' || String(idOrSlug).includes('binary-search')) {
+      return normalizeTemplate(getPredefinedSnippet('binary-search', preferredLang || 'C++'));
+    }
+    return null;
   },
 
   /**

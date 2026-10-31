@@ -11,32 +11,32 @@ export const DEFAULT_SHORTCUTS = [
     name: 'LRU Cache',
     lang: 'C++',
     source: 'template',
-    targetId: 'cpp-lru-cache',
-    to: '/practice?snippet=cpp-lru-cache&lang=C%2B%2B',
+    targetId: 'lru-cache-cpp',
+    to: '/practice?snippet=lru-cache-cpp&lang=C%2B%2B',
   },
   {
     id: 'shortcut-cpp-binary-search',
     name: 'Binary Search',
     lang: 'C++',
     source: 'template',
-    targetId: 'cpp-binary-search',
-    to: '/practice?snippet=cpp-binary-search&lang=C%2B%2B',
+    targetId: 'binary-search-cpp',
+    to: '/practice?snippet=binary-search-cpp&lang=C%2B%2B',
   },
   {
     id: 'shortcut-py-two-sum',
     name: 'Two Sum',
     lang: 'Python',
     source: 'template',
-    targetId: 'py-two-sum',
-    to: '/practice?snippet=py-two-sum&lang=Python',
+    targetId: 'two-sum-python',
+    to: '/practice?snippet=two-sum-python&lang=Python',
   },
   {
     id: 'shortcut-js-debounce',
     name: 'Debounce Fn',
-    lang: 'JS',
+    lang: 'JavaScript',
     source: 'template',
-    targetId: 'js-debounce',
-    to: '/practice?snippet=js-debounce&lang=JavaScript',
+    targetId: 'debounce-javascript',
+    to: '/practice?snippet=debounce-javascript&lang=JavaScript',
   },
 ];
 
@@ -46,9 +46,19 @@ export const DEFAULT_SHORTCUTS = [
 export function getStoredShortcuts() {
   try {
     const raw = localStorage.getItem(SHORTCUTS_STORAGE_KEY);
-    if (!raw) return DEFAULT_SHORTCUTS;
+    // Only fallback to defaults if the key has NEVER been saved in localStorage
+    if (raw === null) return DEFAULT_SHORTCUTS;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SHORTCUTS;
+    if (!Array.isArray(parsed)) return [];
+
+    // Filter out corrupted entries created by legacy bugs
+    const sanitized = parsed.filter(
+      (s) => s && s.id && !s.id.includes('undefined') && s.targetId && s.targetId !== 'undefined'
+    );
+    if (sanitized.length !== parsed.length) {
+      localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch (err) {
     console.warn('Failed to parse practice shortcuts:', err);
     return DEFAULT_SHORTCUTS;
@@ -137,8 +147,10 @@ export function resetShortcuts() {
  * Check if a specific template or card is already pinned.
  */
 export function isShortcutActive(targetId, lang) {
+  if (!targetId || targetId === 'undefined') return false;
   const current = getStoredShortcuts();
   return current.some((s) => {
+    if (!s.targetId || s.targetId === 'undefined') return false;
     if (s.id === targetId || s.targetId === targetId) {
       if (!lang) return true;
       return String(s.lang).toLowerCase() === String(lang).toLowerCase();

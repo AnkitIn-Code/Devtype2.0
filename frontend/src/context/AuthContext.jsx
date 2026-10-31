@@ -1,6 +1,7 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authService } from '../services/authService';
+import { dataCache } from '../services/dataCache';
 
 const AuthContext = createContext(null);
 
@@ -11,6 +12,13 @@ export function AuthProvider({ children }) {
     // Stale-while-revalidate: if valid token & profile are cached, render immediately without blocking
     return !(authService.getToken() && authService.getStoredUser());
   });
+
+  // Eager prefetch user data as early as possible
+  useEffect(() => {
+    if (user?.id) {
+      dataCache.prefetchAll(user.id);
+    }
+  }, [user?.id]);
 
   // Validate or synchronize authentication state on boot
   useEffect(() => {
@@ -30,6 +38,8 @@ export function AuthProvider({ children }) {
         if (isMounted && freshProfile) {
           setUser(freshProfile);
           setToken(activeToken);
+          // Kick off background prefetch immediately
+          dataCache.prefetchAll(freshProfile.id);
         }
       } catch (err) {
         // If server returns 401 Unauthorized, token has expired or is invalid
@@ -105,6 +115,16 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    const currentId = user?.id;
+    await authService.deleteAccount();
+    if (currentId) {
+      dataCache.clearUserCache(currentId);
+    }
+    setToken(null);
+    setUser(null);
+  }, [user?.id]);
+
   const value = {
     token,
     user,
@@ -113,6 +133,7 @@ export function AuthProvider({ children }) {
     login,
     register,
     logout,
+    deleteAccount,
     refreshUser,
     updateUser,
   };

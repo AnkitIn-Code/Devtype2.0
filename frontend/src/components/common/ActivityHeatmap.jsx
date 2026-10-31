@@ -1,5 +1,5 @@
 // src/components/common/ActivityHeatmap.jsx
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { BarChart2, ChevronLeft, ChevronRight, Calendar, Flame, Zap } from 'lucide-react';
 
 const MONTH_NAMES = [
@@ -126,9 +126,16 @@ export default function ActivityHeatmap({
   subtitle = 'Daily keyboard activity and practice telemetry',
   activityData = null,
 }) {
-  const CUR_YEAR = new Date().getFullYear();
+  const CUR_DATE = new Date();
+  const CUR_YEAR = CUR_DATE.getFullYear();
+  const CUR_MONTH_IDX = CUR_DATE.getMonth();
+  const TODAY_STR = `${CUR_YEAR}-${String(CUR_MONTH_IDX + 1).padStart(2, '0')}-${String(CUR_DATE.getDate()).padStart(2, '0')}`;
+
   const [year, setYear] = useState(CUR_YEAR);
   const [activeMonthFilter, setActiveMonthFilter] = useState('all'); // 'all' or 0..11
+
+  const scrollTrackRef = useRef(null);
+  const monthRefs = useRef({});
 
   const activityMap = useMemo(() => {
     if (!Array.isArray(activityData)) return null;
@@ -154,6 +161,33 @@ export default function ActivityHeatmap({
   }, [allMonthsData]);
 
   const activeMonthData = activeMonthFilter === 'all' ? null : allMonthsData[activeMonthFilter];
+
+  const scrollToTargetMonth = useCallback((monthIdx, behavior = 'smooth') => {
+    const track = scrollTrackRef.current;
+    const targetEl = monthRefs.current[monthIdx];
+    if (!track || !targetEl) return;
+
+    const trackWidth = track.clientWidth;
+    const elLeft = targetEl.offsetLeft;
+    const elWidth = targetEl.offsetWidth;
+    const targetScroll = Math.max(0, elLeft - (trackWidth / 2) + (elWidth / 2));
+
+    track.scrollTo({
+      left: targetScroll,
+      behavior,
+    });
+  }, []);
+
+  // Automatically scroll to current month on initial mount and when year/view changes
+  useEffect(() => {
+    if (activeMonthFilter !== 'all') return;
+    const targetIdx = year === CUR_YEAR ? CUR_MONTH_IDX : 0;
+    const timer = setTimeout(() => {
+      scrollToTargetMonth(targetIdx, 'smooth');
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [year, activeMonthFilter, CUR_YEAR, CUR_MONTH_IDX, scrollToTargetMonth]);
 
   return (
     <div className="card heatmap-card month-heatmap-card">
@@ -203,6 +237,22 @@ export default function ActivityHeatmap({
           >
             All Months ({year})
           </button>
+          {year === CUR_YEAR && (
+            <button
+              type="button"
+              className="hm-month-pill hm-jump-current-pill"
+              onClick={() => {
+                if (activeMonthFilter !== 'all') {
+                  setActiveMonthFilter('all');
+                }
+                scrollToTargetMonth(CUR_MONTH_IDX, 'smooth');
+              }}
+              title="Automatically center current month"
+            >
+              <Flame size={12} color="var(--brand)" />
+              <span>Current Month</span>
+            </button>
+          )}
           {MONTH_SHORT.map((mShort, idx) => (
             <button
               key={mShort}
@@ -217,51 +267,64 @@ export default function ActivityHeatmap({
 
         {/* ── VIEW 1: ALL 12 MONTHS (INDIVIDUAL MONTH BLOCKS WITH REAL GAPS) ── */}
         {activeMonthFilter === 'all' ? (
-          <div className="hm-months-scroll-track">
+          <div className="hm-months-scroll-track" ref={scrollTrackRef}>
             <div className="hm-all-months-grid">
-              {allMonthsData.map((month) => (
-                <div
-                  key={month.shortName}
-                  className="hm-single-month-block"
-                  onClick={() => setActiveMonthFilter(month.monthIdx)}
-                  title={`Click to inspect ${month.name} (${month.totalSessions} sessions)`}
-                >
-                  <div className="hm-month-block-header">
-                    <span className="hm-month-block-title">{month.shortName}</span>
-                    <span className="hm-month-block-badge">
-                      {month.totalSessions > 0 ? `${month.totalSessions} runs` : '0 runs'}
-                    </span>
-                  </div>
+              {allMonthsData.map((month) => {
+                const isCurrentMonth = year === CUR_YEAR && month.monthIdx === CUR_MONTH_IDX;
+                return (
+                  <div
+                    key={month.shortName}
+                    ref={(el) => {
+                      if (el) monthRefs.current[month.monthIdx] = el;
+                    }}
+                    className={`hm-single-month-block ${isCurrentMonth ? 'is-current-month' : ''}`}
+                    onClick={() => setActiveMonthFilter(month.monthIdx)}
+                    title={`Click to inspect ${month.name} (${month.totalSessions} sessions)`}
+                  >
+                    <div className="hm-month-block-header">
+                      <span className="hm-month-block-title">{month.shortName}</span>
+                      {isCurrentMonth ? (
+                        <span className="hm-current-month-indicator">Current</span>
+                      ) : (
+                        <span className="hm-month-block-badge">
+                          {month.totalSessions > 0 ? `${month.totalSessions} runs` : '0 runs'}
+                        </span>
+                      )}
+                    </div>
 
-                  {/* Month Weekday Legend Header */}
-                  <div className="hm-month-mini-weekdays">
-                    {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((dayChar, i) => (
-                      <span key={i} className="mini-day-header">{dayChar}</span>
-                    ))}
-                  </div>
+                    {/* Month Weekday Legend Header */}
+                    <div className="hm-month-mini-weekdays">
+                      {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((dayChar, i) => (
+                        <span key={i} className="mini-day-header">{dayChar}</span>
+                      ))}
+                    </div>
 
-                  {/* 7-column calendar matrix for this specific month */}
-                  <div className="hm-month-calendar-grid">
-                    {month.weeks.map((week, wIdx) => (
-                      <div key={wIdx} className="hm-month-week-row">
-                        {week.map((day, dIdx) => (
-                          <div
-                            key={dIdx}
-                            className={`hm-cell-month ${day ? `data-l-${day.level}` : 'cell-empty'}`}
-                            title={
-                              day
-                                ? `${day.date}: ${day.sessions > 0 ? `${day.sessions} sessions` : 'No activity'}`
-                                : ''
-                            }
-                          >
-                            {day && <span className="hm-day-num">{day.dayNum}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
+                    {/* 7-column calendar matrix for this specific month */}
+                    <div className="hm-month-calendar-grid">
+                      {month.weeks.map((week, wIdx) => (
+                        <div key={wIdx} className="hm-month-week-row">
+                          {week.map((day, dIdx) => {
+                            const isToday = day && day.date === TODAY_STR;
+                            return (
+                              <div
+                                key={dIdx}
+                                className={`hm-cell-month ${day ? `data-l-${day.level}` : 'cell-empty'} ${isToday ? 'is-today' : ''}`}
+                                title={
+                                  day
+                                    ? `${day.date}${isToday ? ' (Today)' : ''}: ${day.sessions > 0 ? `${day.sessions} sessions` : 'No activity'}`
+                                    : ''
+                                }
+                              >
+                                {day && <span className="hm-day-num">{day.dayNum}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : (

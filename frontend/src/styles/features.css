@@ -124,6 +124,52 @@
   }
 }
 
+.srs-empty-recall-state {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 26px;
+  border-radius: var(--r12, 12px);
+  background: var(--bg-surface, #FFFFFF);
+  border: 1px dashed var(--glass-border);
+  gap: 18px;
+}
+
+[data-theme='dark'] .srs-empty-recall-state {
+  background: rgba(30, 41, 59, 0.40);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.srs-empty-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.srs-empty-content {
+  flex: 1;
+}
+
+.srs-empty-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--t1);
+  margin: 0 0 4px 0;
+}
+
+.srs-empty-desc {
+  font-size: 0.82rem;
+  color: var(--t3);
+  margin: 0;
+}
+
 .srs-recall-card {
   display: flex;
   flex-direction: column;
@@ -742,14 +788,17 @@
 .devtype-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  width: 100vw;
+  height: 100vh;
+  z-index: 99999;
+  background: rgba(10, 15, 29, 0.75);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 20px;
+  overflow-y: auto;
   animation: fadeIn 0.15s ease-out;
 }
 
@@ -759,15 +808,30 @@
   background: var(--bg-surface, #FFFFFF);
   border: 1px solid var(--glass-border);
   border-radius: var(--r16, 16px);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  max-height: 90vh;
+  margin: auto;
+  animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 [data-theme='dark'] .devtype-modal-box {
   background: #0f172a;
   border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
 }
 
 .devtype-modal-header {

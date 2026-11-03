@@ -8,7 +8,10 @@ import java.time.Instant;
 
 public record AdminReportResponse(
         Long id,
+        String title,
         String category,
+        String priority,
+        Boolean isSystemFlagged,
         String description,
         ReportStatus status,
         UserSummary reporter,
@@ -16,6 +19,7 @@ public record AdminReportResponse(
         UserSummary reviewedByUser,
         Instant reviewedAt,
         String resolutionNote,
+        String adminResponse,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -29,7 +33,10 @@ public record AdminReportResponse(
     public static AdminReportResponse from(UserReport report) {
         return new AdminReportResponse(
                 report.getId(),
+                report.getTitle(),
                 report.getCategory(),
+                report.getPriority(),
+                report.getIsSystemFlagged(),
                 report.getDescription(),
                 report.getStatus(),
                 UserSummary.from(report.getReporter()),
@@ -37,6 +44,7 @@ public record AdminReportResponse(
                 UserSummary.from(report.getReviewedByUser()),
                 report.getReviewedAt(),
                 report.getResolutionNote(),
+                report.getAdminResponse(),
                 report.getCreatedAt(),
                 report.getUpdatedAt()
         );

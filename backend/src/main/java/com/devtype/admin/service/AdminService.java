@@ -30,6 +30,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -205,6 +206,24 @@ public class AdminService {
         }
 
         targetUser.setStatus(request.status());
+        if (request.status() == UserStatus.SUSPENDED) {
+            int days = (request.suspensionDays() != null && request.suspensionDays() > 0) ? request.suspensionDays() : 7;
+            targetUser.setSuspendedUntil(Instant.now().plus(Duration.ofDays(days)));
+            targetUser.setSuspensionReason(request.reason());
+            targetUser.setDeactivatedAt(null);
+            targetUser.setScheduledDeletionAt(null);
+        } else if (request.status() == UserStatus.DEACTIVATED) {
+            targetUser.setDeactivatedAt(Instant.now());
+            // 30 days retention before permanent deletion from database
+            targetUser.setScheduledDeletionAt(Instant.now().plus(Duration.ofDays(30)));
+            targetUser.setSuspendedUntil(null);
+            targetUser.setSuspensionReason(request.reason());
+        } else if (request.status() == UserStatus.ACTIVE) {
+            targetUser.setSuspendedUntil(null);
+            targetUser.setSuspensionReason(null);
+            targetUser.setDeactivatedAt(null);
+            targetUser.setScheduledDeletionAt(null);
+        }
         User savedUser = userRepository.save(targetUser);
 
         // Append to immutable administrative audit log
@@ -239,6 +258,10 @@ public class AdminService {
         UserRole previousRole = targetUser.getRole();
         if (previousRole == request.role()) {
             return AdminUserResponse.fromUser(targetUser);
+        }
+
+        if (request.role() == UserRole.ADMIN && previousRole != UserRole.ADMIN) {
+            throw new ApiException("There can only be one platform administrator. Promoting users to administrator is disabled.", HttpStatus.FORBIDDEN);
         }
 
         // Prevent demoting the last active administrator
@@ -311,6 +334,9 @@ public class AdminService {
         if (request.resolutionNote() != null) {
             report.setResolutionNote(request.resolutionNote().trim());
         }
+        if (request.adminResponse() != null) {
+            report.setAdminResponse(request.adminResponse().trim());
+        }
 
         UserReport savedReport = userReportRepository.save(report);
 
@@ -335,11 +361,15 @@ public class AdminService {
 
         User reportedUser = null;
         if (request.reportedUserId() != null) {
-            if (request.reportedUserId().equals(reporterUserId)) {
+            if (!Boolean.TRUE.equals(request.isSystemFlagged()) && request.reportedUserId().equals(reporterUserId)) {
                 throw new ApiException("Users cannot file reports against their own account.", HttpStatus.BAD_REQUEST);
             }
             reportedUser = userRepository.findById(request.reportedUserId())
                     .orElseThrow(() -> new ApiException("Reported user not found with ID: " + request.reportedUserId(), HttpStatus.BAD_REQUEST));
+
+            if (Boolean.TRUE.equals(request.isSystemFlagged()) && reportedUser.getRole() == UserRole.ADMIN) {
+                throw new ApiException("Platform administrators cannot be flagged by automated anti-cheat.", HttpStatus.BAD_REQUEST);
+            }
         }
 
         UserReport report = new UserReport(
@@ -348,8 +378,50 @@ public class AdminService {
                 request.category().trim().toUpperCase(),
                 request.description().trim()
         );
+        report.setTitle(request.title() != null && !request.title().isBlank() ? request.title().trim() : "Support Request");
+        report.setPriority(request.priority() != null && !request.priority().isBlank() ? request.priority().trim().toUpperCase() : "NORMAL");
+        report.setIsSystemFlagged(Boolean.TRUE.equals(request.isSystemFlagged()));
         report.setStatus(ReportStatus.OPEN);
 
         return userReportRepository.save(report);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminReportResponse> getUserTickets(Long userId) {
+        return userReportRepository.findByReporterIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .map(AdminReportResponse::from)
+                .toList();
+    }
+
+    @Transactional
+    public void deleteReport(Long reportId, Long actingAdminId, HttpServletRequest servletRequest) {
+        UserReport report = userReportRepository.findById(reportId)
+                .orElseThrow(() -> new ApiException("Report not found with ID: " + reportId, HttpStatus.NOT_FOUND));
+
+        userReportRepository.delete(report);
+
+        auditLogService.recordLog(
+                actingAdminId,
+                "REPORT_DELETED",
+                "REPORT",
+                reportId,
+                report.getStatus().name(),
+                "DELETED",
+                "Report #" + reportId + " (" + report.getTitle() + ") deleted by administrator.",
+                servletRequest
+        );
+    }
+
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 0 3 * * *")
+    @Transactional
+    public int purgeExpiredDeactivatedAccounts() {
+        List<User> expired = userRepository.findAll().stream()
+                .filter(u -> u.getStatus() == UserStatus.DEACTIVATED && u.getScheduledDeletionAt() != null && Instant.now().isAfter(u.getScheduledDeletionAt()))
+                .toList();
+        for (User u : expired) {
+            userRepository.delete(u);
+        }
+        return expired.size();
     }
 }

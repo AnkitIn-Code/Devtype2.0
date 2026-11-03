@@ -10,6 +10,7 @@ import com.devtype.leaderboard.dto.SeasonInfoResponse;
 import com.devtype.leaderboard.dto.UserRankResponse;
 import com.devtype.user.User;
 import com.devtype.user.UserRepository;
+import com.devtype.user.UserRole;
 import com.devtype.user.UserStatus;
 import com.devtype.common.exception.ResourceNotFoundException;
 import com.devtype.leaderboard.dto.MatchHistoryResponse;
@@ -85,11 +86,12 @@ public class LeaderboardService {
         Long currentUserId = SecurityUtils.getCurrentUserId().orElse(null);
 
         try {
+            db.update("DELETE FROM user_season_ratings WHERE user_id IN (SELECT id FROM app_users WHERE role = 'ADMIN')");
             db.update(
                 "INSERT INTO user_season_ratings (user_id, season_id, rating, peak_rating, tier, matches_played, wins, losses, created_at) " +
                 "SELECT u.id, ?, 1200, 1200, 'Bronze V', 0, 0, 0, CURRENT_TIMESTAMP " +
                 "FROM app_users u " +
-                "WHERE u.status = 'ACTIVE' " +
+                "WHERE u.status = 'ACTIVE' AND u.role <> 'ADMIN' " +
                 "ON CONFLICT (user_id, season_id) DO NOTHING",
                 activeSeason.getId()
             );
@@ -122,7 +124,7 @@ public class LeaderboardService {
         int currentRank = 1;
         for (UserSeasonRating r : ratings) {
             User user = r.getUser();
-            if (user == null || user.getStatus() != UserStatus.ACTIVE) {
+            if (user == null || user.getStatus() != UserStatus.ACTIVE || user.getRole() == UserRole.ADMIN) {
                 continue;
             }
 
@@ -255,6 +257,26 @@ public class LeaderboardService {
         if (user == null) {
             BgmiTierService.ResetProjection reset = bgmiTierService.calculateSeasonReset("Bronze V", 1200);
             return new UserRankResponse(0, bgmiTierService.getTierForRating(1200).name(), 1200, 1200, 0, 0, 0, 0, 0, "Bronze IV", reset.startingTierNextSeason(), reset.startingRatingNextSeason(), daysRemaining, activeSeason.getSeasonNumber(), activeSeason.getSeasonName());
+        }
+
+        if (user.getRole() == UserRole.ADMIN) {
+            return new UserRankResponse(
+                    0L,
+                    "Platform Maintainer",
+                    1200,
+                    1200,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    "Non-Competitive (Admin)",
+                    "N/A",
+                    1200,
+                    daysRemaining,
+                    activeSeason.getSeasonNumber(),
+                    activeSeason.getSeasonName()
+            );
         }
 
         UserSeasonRating rating = userSeasonRatingRepository.findByUserIdAndSeasonId(user.getId(), activeSeason.getId())

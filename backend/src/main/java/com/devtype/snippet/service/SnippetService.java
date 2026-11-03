@@ -1,11 +1,14 @@
 package com.devtype.snippet.service;
 
+import com.devtype.admin.service.AdminAuditLogService;
 import com.devtype.common.exception.ResourceNotFoundException;
 import com.devtype.snippet.Snippet;
 import com.devtype.snippet.SnippetRepository;
 import com.devtype.snippet.dto.CreateSnippetRequest;
 import com.devtype.snippet.dto.SnippetDetailResponse;
 import com.devtype.snippet.dto.SnippetSummaryResponse;
+import com.devtype.user.UserRepository;
+import com.devtype.user.UserRole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,9 +22,15 @@ public class SnippetService {
     private static final Logger log = LoggerFactory.getLogger(SnippetService.class);
 
     private final SnippetRepository snippetRepository;
+    private final AdminAuditLogService auditLogService;
+    private final UserRepository userRepository;
 
-    public SnippetService(SnippetRepository snippetRepository) {
+    public SnippetService(SnippetRepository snippetRepository,
+                          AdminAuditLogService auditLogService,
+                          UserRepository userRepository) {
         this.snippetRepository = snippetRepository;
+        this.auditLogService = auditLogService;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -51,6 +60,31 @@ public class SnippetService {
 
         Snippet saved = snippetRepository.save(snippet);
         log.info("Created custom snippet id={} title='{}' for user id={}", saved.getId(), saved.getTitle(), userId);
+
+        // Record in admin audit log
+        try {
+            boolean isAdmin = false;
+            if (userId != null) {
+                isAdmin = userRepository.findById(userId)
+                        .map(u -> u.getRole() == UserRole.ADMIN)
+                        .orElse(false);
+            }
+            if (isAdmin || saved.isCurated() || userId == null) {
+                auditLogService.recordLog(
+                        userId,
+                        "TEMPLATE_CREATE",
+                        "TEMPLATE",
+                        saved.getId(),
+                        "NONE",
+                        saved.getTitle() + " (" + saved.getLanguage() + ")",
+                        "Created template: " + saved.getTitle() + " in " + saved.getLanguage() + " [" + saved.getCategory() + "]",
+                        null
+                );
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to record template create audit log: {}", ex.getMessage());
+        }
+
         return SnippetDetailResponse.fromEntity(saved);
     }
 
@@ -58,6 +92,9 @@ public class SnippetService {
     public SnippetDetailResponse updateSnippet(Long id, CreateSnippetRequest request, Long userId) {
         Snippet snippet = snippetRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Snippet not found with ID: " + id));
+
+        String prevTitle = snippet.getTitle();
+        String prevLang = snippet.getLanguage();
 
         snippet.setTitle(request.title());
         snippet.setLanguage(request.language());
@@ -69,6 +106,23 @@ public class SnippetService {
         if (request.tags() != null) snippet.setTags(String.join(",", request.tags()));
 
         Snippet updated = snippetRepository.save(snippet);
+
+        // Record in admin audit log
+        try {
+            auditLogService.recordLog(
+                    userId,
+                    "TEMPLATE_UPDATE",
+                    "TEMPLATE",
+                    updated.getId(),
+                    prevTitle + " (" + prevLang + ")",
+                    updated.getTitle() + " (" + updated.getLanguage() + ")",
+                    "Updated template #" + updated.getId() + ": " + updated.getTitle() + " (" + updated.getLanguage() + ")",
+                    null
+            );
+        } catch (Exception ex) {
+            log.warn("Failed to record template update audit log: {}", ex.getMessage());
+        }
+
         return SnippetDetailResponse.fromEntity(updated);
     }
 
@@ -131,7 +185,27 @@ public class SnippetService {
     public void deleteSnippet(Long id, Long userId) {
         Snippet snippet = snippetRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Snippet not found with ID: " + id));
+
+        String title = snippet.getTitle();
+        String lang = snippet.getLanguage();
+
         snippetRepository.delete(snippet);
         log.info("Deleted snippet id={}", id);
+
+        // Record in admin audit log
+        try {
+            auditLogService.recordLog(
+                    userId,
+                    "TEMPLATE_DELETE",
+                    "TEMPLATE",
+                    id,
+                    title + " (" + lang + ")",
+                    "DELETED",
+                    "Admin deleted code template #" + id + ": " + title + " (" + lang + ")",
+                    null
+            );
+        } catch (Exception ex) {
+            log.warn("Failed to record template delete audit log: {}", ex.getMessage());
+        }
     }
 }

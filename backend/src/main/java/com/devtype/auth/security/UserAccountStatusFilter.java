@@ -44,8 +44,15 @@ public class UserAccountStatusFilter extends OncePerRequestFilter {
             if (userOpt.isPresent()) {
                 User user = userOpt.get();
                 if (user.getStatus() == UserStatus.SUSPENDED) {
-                    sendForbiddenResponse(request, response, "Account is suspended. Please contact support.");
-                    return;
+                    if (user.getSuspendedUntil() != null && Instant.now().isAfter(user.getSuspendedUntil())) {
+                        user.setStatus(UserStatus.ACTIVE);
+                        user.setSuspendedUntil(null);
+                        user.setSuspensionReason(null);
+                        userRepository.save(user);
+                    } else {
+                        sendForbiddenResponse(request, response, "Account is suspended. Please contact support.");
+                        return;
+                    }
                 }
                 if (user.getStatus() == UserStatus.DEACTIVATED) {
                     sendForbiddenResponse(request, response, "Account is deactivated. Please contact support.");

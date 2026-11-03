@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Trophy, Medal, Crown, Award, Swords,
   Search, X, ChevronLeft, ChevronRight,
-  Shield, TrendingUp, TrendingDown, Users,
+  Shield, ShieldCheck, TrendingUp, TrendingDown, Users,
   Check, Flame, AlertCircle, RefreshCw,
   Clock, ArrowUpRight
 } from 'lucide-react';
@@ -307,9 +307,18 @@ export default function Leaderboard() {
     };
   }, [fetchData, selectedTier, user?.id]);
 
-  // Filtered and Sorted Competitors
+  // Filtered and Sorted Competitors (Excludes Platform Administrator & guarantees sequential ranking)
+  const cleanLeaderboardData = useMemo(() => {
+    return leaderboardData
+      .filter((dev) => dev.role !== 'ADMIN' && dev.username !== 'admin')
+      .map((dev, idx) => ({
+        ...dev,
+        rank: idx + 1,
+      }));
+  }, [leaderboardData]);
+
   const processedCompetitors = useMemo(() => {
-    let list = [...leaderboardData];
+    let list = [...cleanLeaderboardData];
 
     // Search query filter
     if (searchQuery.trim()) {
@@ -339,17 +348,18 @@ export default function Leaderboard() {
     });
 
     return list;
-  }, [leaderboardData, searchQuery, sortBy]);
+  }, [cleanLeaderboardData, searchQuery, sortBy]);
 
-  // Top 3 Podium
+  // Top 3 Podium (Pure non-admin competitors only)
   const topThree = useMemo(() => {
-    return [leaderboardData[0], leaderboardData[1], leaderboardData[2]];
-  }, [leaderboardData]);
+    return [cleanLeaderboardData[0], cleanLeaderboardData[1], cleanLeaderboardData[2]];
+  }, [cleanLeaderboardData]);
 
-  // Current user's relative standing
+  // Current user's relative standing (null for platform administrators)
   const currentUserStanding = useMemo(() => {
-    return leaderboardData.find((dev) => dev.isCurrentUser);
-  }, [leaderboardData]);
+    if (user?.role === 'ADMIN') return null;
+    return cleanLeaderboardData.find((dev) => dev.isCurrentUser);
+  }, [cleanLeaderboardData, user?.role]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(processedCompetitors.length / pageSize));
@@ -560,61 +570,100 @@ export default function Leaderboard() {
             )}
           </div>
 
-          {/* ── User's Personal Standing Box (Down from Top 3) ── */}
-          <div className="lb-user-standing-banner">
-            <div className="lb-user-standing-left">
-              <div className="lb-user-rank-box" title="Your Global Sequential Rank">
-                #{currentRankPos}
+          {/* ── User's Personal Standing Box or Admin Maintainer Banner ── */}
+          {user?.role === 'ADMIN' ? (
+            <div className="lb-user-standing-banner lb-admin-maintainer-banner" style={{ borderLeft: '4px solid var(--brand)' }}>
+              <div className="lb-user-standing-left">
+                <div className="lb-user-rank-box" style={{ width: 'auto', padding: '0 12px', fontSize: '0.8rem', background: 'rgba(37, 99, 235, 0.15)', borderColor: 'rgba(37, 99, 235, 0.4)', color: 'var(--brand)' }}>
+                  Platform Admin
+                </div>
+                <div className="lb-user-profile-info">
+                  <div className="lb-user-profile-title">
+                    <span className="lb-user-name">
+                      {user?.displayName || user?.username || 'DevType Administrator'}
+                    </span>
+                    <span className="lb-user-you-tag" style={{ background: 'var(--brand)' }}>ADMIN</span>
+                    <span className="bgmi-tier-badge" style={{ margin: 0, color: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                      🛡️ Platform Maintainer
+                    </span>
+                  </div>
+                  <span className="lb-user-handle">@{user?.username || 'admin'} · Platform Maintainer</span>
+                </div>
               </div>
-              <div className="lb-user-profile-info">
-                <div className="lb-user-profile-title">
-                  <span className="lb-user-name">
-                    {user?.displayName || user?.username || 'You'}
-                  </span>
-                  <span className="lb-user-you-tag">YOU</span>
-                  <span
-                    className="bgmi-tier-badge"
-                    style={{
-                      margin: 0,
-                      color: myTierVisuals.color,
-                      backgroundColor: myTierVisuals.bg,
-                      border: `1px solid ${myTierVisuals.border}`,
-                    }}
-                  >
-                    {myTierVisuals.icon} {currentTier}
+
+              <div className="lb-user-stats-bar">
+                <div className="lb-user-stat-cell" style={{ maxWidth: 360 }}>
+                  <span className="lb-user-stat-label">Governance Status</span>
+                  <span className="lb-user-stat-val" style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--t2)' }}>
+                    Admin accounts maintain the platform and are excluded from competitive player rankings.
                   </span>
                 </div>
-                <span className="lb-user-handle">@{user?.username || 'developer'}</span>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => navigate('/admin')}
+                >
+                  <ShieldCheck size={14} />
+                  <span>Admin Console</span>
+                </button>
               </div>
             </div>
+          ) : (
+            <div className="lb-user-standing-banner">
+              <div className="lb-user-standing-left">
+                <div className="lb-user-rank-box" title="Your Global Sequential Rank">
+                  #{currentRankPos}
+                </div>
+                <div className="lb-user-profile-info">
+                  <div className="lb-user-profile-title">
+                    <span className="lb-user-name">
+                      {user?.displayName || user?.username || 'You'}
+                    </span>
+                    <span className="lb-user-you-tag">YOU</span>
+                    <span
+                      className="bgmi-tier-badge"
+                      style={{
+                        margin: 0,
+                        color: myTierVisuals.color,
+                        backgroundColor: myTierVisuals.bg,
+                        border: `1px solid ${myTierVisuals.border}`,
+                      }}
+                    >
+                      {myTierVisuals.icon} {currentTier}
+                    </span>
+                  </div>
+                  <span className="lb-user-handle">@{user?.username || 'developer'}</span>
+                </div>
+              </div>
 
-            <div className="lb-user-stats-bar">
-              <div className="lb-user-stat-cell">
-                <span className="lb-user-stat-label">Current Rating</span>
-                <span className="lb-user-stat-val" style={{ color: myTierVisuals.color }}>
-                  {currentRating} ELO
-                </span>
+              <div className="lb-user-stats-bar">
+                <div className="lb-user-stat-cell">
+                  <span className="lb-user-stat-label">Current Rating</span>
+                  <span className="lb-user-stat-val" style={{ color: myTierVisuals.color }}>
+                    {currentRating} ELO
+                  </span>
+                </div>
+                <div className="lb-user-stat-cell">
+                  <span className="lb-user-stat-label">Peak This Season</span>
+                  <span className="lb-user-stat-val">{currentPeak}</span>
+                </div>
+                <div className="lb-user-stat-cell">
+                  <span className="lb-user-stat-label">W - L Record</span>
+                  <span className="lb-user-stat-val">
+                    {currentWins}W - {currentLosses}L ({currentWinRate}%)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleScrollToUser}
+                >
+                  <span>Jump to My Row</span>
+                  <ArrowUpRight size={13} />
+                </button>
               </div>
-              <div className="lb-user-stat-cell">
-                <span className="lb-user-stat-label">Peak This Season</span>
-                <span className="lb-user-stat-val">{currentPeak}</span>
-              </div>
-              <div className="lb-user-stat-cell">
-                <span className="lb-user-stat-label">W - L Record</span>
-                <span className="lb-user-stat-val">
-                  {currentWins}W - {currentLosses}L ({currentWinRate}%)
-                </span>
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={handleScrollToUser}
-              >
-                <span>Jump to My Row</span>
-                <ArrowUpRight size={13} />
-              </button>
             </div>
-          </div>
+          )}
 
           {/* ── Full Leaderboard Directory Table with Filter & Pagination ── */}
           <div className="card lb-table-card">
@@ -929,8 +978,52 @@ export default function Leaderboard() {
           ============================================================ */}
       {activeTab === 'my-rank' && (
         <div className="bgmi-tier-view">
-          {/* ── Hero Card: Current BGMI Tier & Countdown ── */}
-          <div className="bgmi-hero-card">
+          {user?.role === 'ADMIN' ? (
+            <div className="bgmi-hero-card" style={{ borderColor: 'rgba(37, 99, 235, 0.4)' }}>
+              <div className="bgmi-hero-top">
+                <div className="bgmi-tier-badge-large">
+                  <div
+                    className="bgmi-tier-emblem"
+                    style={{
+                      backgroundColor: 'rgba(37, 99, 235, 0.15)',
+                      borderColor: 'rgba(37, 99, 235, 0.4)',
+                      color: 'var(--brand)',
+                    }}
+                  >
+                    🛡️
+                  </div>
+                  <div className="bgmi-tier-titles">
+                    <span style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--brand)' }}>
+                      Platform Administrator Profile
+                    </span>
+                    <h1 style={{ color: 'var(--brand)' }}>Root Platform Maintainer</h1>
+                    <div className="bgmi-tier-subtitle">
+                      Non-Ranked Account · Sole Platform Maintainer · Excluded from seasonal leaderboard resets
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bgmi-countdown-box">
+                  <div className="bgmi-countdown-label">Active Season Status</div>
+                  <div className="bgmi-countdown-val">{seasonInfo?.seasonName || 'Season 1'}</div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--t3)' }}>Admin oversees all player seasons</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20, padding: '16px 20px', borderRadius: 12, background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--glass-border-sub)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--t1)', fontSize: '0.95rem' }}>Platform Administrator Authority</div>
+                  <div style={{ color: 'var(--t3)', fontSize: '0.82rem', marginTop: 2 }}>As platform maintainer, you monitor platform telemetry, manage user accounts, and ensure anti-cheat integrity.</div>
+                </div>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/admin')}>
+                  <ShieldCheck size={14} />
+                  <span>Open Admin Console</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* ── Hero Card: Current BGMI Tier & Countdown ── */
+            <div className="bgmi-hero-card">
             <div className="bgmi-hero-top">
               <div className="bgmi-tier-badge-large">
                 <div
@@ -984,6 +1077,7 @@ export default function Leaderboard() {
               </div>
             </div>
           </div>
+          )}
 
           {/* ── BGMI Tier Roadmap Ladder (Bronze -> Ace) ── */}
           <div className="bgmi-tier-ladder">

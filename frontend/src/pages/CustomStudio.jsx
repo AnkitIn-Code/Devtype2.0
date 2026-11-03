@@ -1,5 +1,5 @@
 // src/pages/CustomStudio.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Code2,
@@ -24,10 +24,13 @@ import {
   X,
   Clock,
   Zap,
-  Repeat
+  Repeat,
+  Bookmark,
+  Sparkle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { snippetService } from '../services/snippetService';
+import { aiService } from '../services/aiService';
 
 const LANGUAGES = [
   'TypeScript',
@@ -48,7 +51,7 @@ export default function CustomStudio() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const fileInputRef = useRef(null);
-  const [activeTab, setActiveTab] = useState('manual'); // 'manual' | 'github' | 'markdown'
+  const [activeTab, setActiveTab] = useState('manual'); // 'manual' | 'github' | 'markdown' | 'ai'
   const [snippets, setSnippets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -68,6 +71,17 @@ export default function CustomStudio() {
   const [markdownText, setMarkdownText] = useState('');
   const [statusMessage, setStatusMessage] = useState(null);
 
+  // Fireworks AI DeepSeek Generator State
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiLanguage, setAiLanguage] = useState('TypeScript');
+  const [aiDifficulty, setAiDifficulty] = useState('Intermediate');
+  const [aiExerciseType, setAiExerciseType] = useState('Algorithm');
+  const [aiInstructions, setAiInstructions] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiQuota, setAiQuota] = useState(null);
+  const [aiSavedTemplates, setAiSavedTemplates] = useState([]);
+
   const resetForm = () => {
     setEditingId(null);
     setTitle('');
@@ -78,11 +92,7 @@ export default function CustomStudio() {
     setCode('');
   };
 
-  useEffect(() => {
-    loadSnippets();
-  }, [user?.id]);
-
-  const loadSnippets = async () => {
+  const loadSnippets = useCallback(async () => {
     setIsLoading(true);
     try {
       const list = await snippetService.getCustomSnippets(user?.id);
@@ -92,11 +102,152 @@ export default function CustomStudio() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadSnippets();
+  }, [loadSnippets]);
 
   const showStatus = (text, type = 'success') => {
     setStatusMessage({ text, type });
     setTimeout(() => setStatusMessage(null), 4000);
+  };
+
+  const loadAiQuota = async () => {
+    try {
+      const q = await aiService.getQuota();
+      if (q) setAiQuota(q);
+    } catch (e) {
+      console.debug('Failed to load AI quota:', e);
+    }
+  };
+
+  const loadAiSavedTemplates = async () => {
+    try {
+      const list = await aiService.getSavedTemplates();
+      if (Array.isArray(list)) setAiSavedTemplates(list);
+    } catch (e) {
+      console.debug('Failed to load saved AI templates:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'ai') {
+      loadAiQuota();
+      loadAiSavedTemplates();
+    }
+  }, [activeTab]);
+
+  const handleGenerateAi = async (e) => {
+    e.preventDefault();
+    if (!aiTopic.trim()) {
+      showStatus('Please specify an algorithm or engineering topic for AI generation.', 'error');
+      return;
+    }
+    setAiGenerating(true);
+    setAiResult(null);
+    showStatus('Dispatching generation task to Fireworks AI (DeepSeek V4 Pro)...', 'info');
+    try {
+      const result = await aiService.generateTemplate({
+        language: aiLanguage,
+        difficulty: aiDifficulty.toUpperCase(),
+        topic: aiTopic.trim(),
+        exerciseType: aiExerciseType,
+        targetLength: 'Balanced (20-35 lines)',
+        customInstructions: aiInstructions.trim() || undefined,
+      });
+      setAiResult(result);
+      if (result.remainingHourlyQuota !== undefined) {
+        setAiQuota((prev) => (prev ? { ...prev, remainingInLastHour: result.remainingHourlyQuota } : null));
+      }
+      showStatus(`Generated "${result.title}" via DeepSeek V4 Pro!`, 'success');
+    } catch (err) {
+      console.error('AI Generation failed:', err);
+      showStatus(err.message || 'Failed to generate code template with AI. Please check quota or try again.', 'error');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleSaveAiTemplate = async () => {
+    if (!aiResult) return;
+    try {
+      const diffFormatted = aiResult.difficulty
+        ? aiResult.difficulty.charAt(0).toUpperCase() + aiResult.difficulty.slice(1).toLowerCase()
+        : 'Intermediate';
+
+      const snippetPayload = {
+        title: aiResult.title,
+        language: aiResult.language,
+        difficulty: diffFormatted,
+        drillMode: 'standard',
+        category: 'Custom Drills',
+        tags: ['ai-generated', aiResult.language.toLowerCase(), (aiResult.topic || 'drill').toLowerCase()],
+        code: aiResult.code,
+        xpBounty: diffFormatted === 'Advanced' ? 100 : diffFormatted === 'Intermediate' ? 60 : 40,
+      };
+
+      // 1. Save directly to Custom Blueprints so it appears in "Your Saved Custom Blueprints"
+      const savedSnippet = await snippetService.createSnippet(snippetPayload, user?.id);
+
+      // 2. Also sync to backend AI templates library for redundancy
+      try {
+        await aiService.saveTemplate({
+          title: aiResult.title,
+          description: aiResult.description || `AI-generated ${aiResult.language} ${diffFormatted} drill`,
+          language: aiResult.language,
+          difficulty: aiResult.difficulty,
+          category: 'AI Generated',
+          content: aiResult.code,
+          estimatedDurationSeconds: aiResult.estimatedDurationSeconds || 90,
+        });
+        await loadAiSavedTemplates();
+      } catch (backendErr) {
+        console.warn('AI template backend sync notice:', backendErr);
+      }
+
+      const savedTitle = savedSnippet?.title || aiResult.title;
+      showStatus(`Saved "${savedTitle}" to your Saved Custom Blueprints!`, 'success');
+
+      // Refresh blueprints list so the new snippet appears immediately in the grid
+      await loadSnippets();
+
+      // Empty generated fields and clear input prompt so it's ready for the next input
+      setAiResult(null);
+      setAiTopic('');
+      setAiInstructions('');
+    } catch (err) {
+      console.error('Failed to save AI template:', err);
+      showStatus(err.message || 'Failed to save template to custom blueprints.', 'error');
+    }
+  };
+
+  const handleSendAiToWorkbench = () => {
+    if (!aiResult) return;
+    setTitle(aiResult.title);
+    setLanguage(aiResult.language);
+    setDifficulty(aiResult.difficulty.charAt(0).toUpperCase() + aiResult.difficulty.slice(1).toLowerCase());
+    setTags(['ai-generated', aiResult.language.toLowerCase(), (aiResult.topic || 'drill').toLowerCase()]);
+    setCode(aiResult.code);
+    setActiveTab('manual');
+    window.scrollTo({ top: 400, behavior: 'smooth' });
+    showStatus(`Loaded "${aiResult.title}" into Workbench editor.`);
+  };
+
+  const handlePracticeAiDirectly = (tpl) => {
+    const target = tpl || aiResult;
+    if (!target) return;
+    const snippetData = {
+      id: target.id || 'ai-session-' + Date.now(),
+      title: target.title,
+      language: target.language,
+      difficulty: target.difficulty,
+      content: target.code || target.content,
+      code: target.code || target.content,
+    };
+    navigate(`/practice?lang=${encodeURIComponent(target.language)}&mode=standard&lockLang=true`, {
+      state: { snippet: snippetData, mode: 'standard' },
+    });
   };
 
   // Tag Management
@@ -492,6 +643,36 @@ export default function CustomStudio() {
               <FileText size={14} />
               <span>Markdown Extractor</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('ai')}
+              className={`btn btn-sm ${activeTab === 'ai' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{
+                height: 32,
+                background: activeTab === 'ai' ? 'linear-gradient(135deg, #4f46e5, #7c3aed)' : undefined,
+                color: activeTab === 'ai' ? '#fff' : 'var(--t1)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <Sparkles size={14} />
+              <span>Fireworks AI</span>
+              <span
+                style={{
+                  fontSize: '0.62rem',
+                  padding: '1px 5px',
+                  borderRadius: 4,
+                  background: activeTab === 'ai' ? 'rgba(255,255,255,0.25)' : 'rgba(99, 102, 241, 0.15)',
+                  color: activeTab === 'ai' ? '#fff' : '#818cf8',
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                }}
+              >
+                DeepSeek V4
+              </span>
+            </button>
           </div>
 
           {/* Quick Import / Export Tools */}
@@ -760,6 +941,465 @@ export default function CustomStudio() {
               </button>
             </div>
           </form>
+        )}
+
+        {/* Tab 4: Fireworks AI DeepSeek Generator */}
+        {activeTab === 'ai' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Header / Model Banner */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                padding: '14px 18px',
+                borderRadius: 12,
+                background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.12), rgba(124, 58, 237, 0.08))',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)',
+                  }}
+                >
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--t1)' }}>
+                      Fireworks AI Engine
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.68rem',
+                        fontFamily: 'var(--font-mono)',
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(99, 102, 241, 0.2)',
+                        color: '#818cf8',
+                        fontWeight: 700,
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                      }}
+                    >
+                      accounts/fireworks/models/deepseek-v4-pro-0813
+                    </span>
+                  </div>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: 'var(--t3)' }}>
+                    Generate production-grade algorithmic drills, concurrency primitives, and idiomatic patterns with verified typing metrics.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quota Pill */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 14px',
+                  borderRadius: 999,
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--glass-border)',
+                  fontSize: '0.78rem',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--t2)',
+                }}
+              >
+                <Zap size={14} color="#38bdf8" />
+                <span>
+                  Quota:{' '}
+                  <strong style={{ color: aiQuota && aiQuota.remainingInLastHour <= 2 ? '#ef4444' : '#10b981' }}>
+                    {aiQuota ? aiQuota.remainingInLastHour : 20}
+                  </strong>{' '}
+                  / {aiQuota ? aiQuota.hourlyLimit : 20} left this hour
+                </span>
+              </div>
+            </div>
+
+            {/* Generation Form */}
+            <form onSubmit={handleGenerateAi} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14 }}>
+                <div>
+                  <label
+                    style={{
+                      fontSize: '0.74rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--t3)',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Topic / Algorithm / Pattern
+                  </label>
+                  <input
+                    type="text"
+                    value={aiTopic}
+                    onChange={(e) => setAiTopic(e.target.value)}
+                    placeholder="e.g. Thread-Safe Ring Buffer, Red-Black Tree, A* Search"
+                    className="search-input"
+                    style={{ width: '100%', height: 38 }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    style={{
+                      fontSize: '0.74rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--t3)',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Language
+                  </label>
+                  <select
+                    value={aiLanguage}
+                    onChange={(e) => setAiLanguage(e.target.value)}
+                    className="btn btn-secondary-glass btn-sm"
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: 'var(--t1)',
+                      background: 'var(--bg-surface)',
+                    }}
+                  >
+                    {LANGUAGES.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    style={{
+                      fontSize: '0.74rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--t3)',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Difficulty
+                  </label>
+                  <select
+                    value={aiDifficulty}
+                    onChange={(e) => setAiDifficulty(e.target.value)}
+                    className="btn btn-secondary-glass btn-sm"
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: 'var(--t1)',
+                      background: 'var(--bg-surface)',
+                    }}
+                  >
+                    {DIFFICULTIES.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    style={{
+                      fontSize: '0.74rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--t3)',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      display: 'block',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Drill Category
+                  </label>
+                  <select
+                    value={aiExerciseType}
+                    onChange={(e) => setAiExerciseType(e.target.value)}
+                    className="btn btn-secondary-glass btn-sm"
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      padding: '0 12px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: 'var(--t1)',
+                      background: 'var(--bg-surface)',
+                    }}
+                  >
+                    {['Algorithm', 'Data Structure', 'Concurrency Pattern', 'System Primitive', 'Idiomatic Utility'].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    fontSize: '0.74rem',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--t3)',
+                    textTransform: 'uppercase',
+                    fontWeight: 700,
+                    display: 'block',
+                    marginBottom: 6,
+                  }}
+                >
+                  Custom Directives &amp; Coding Constraints (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={aiInstructions}
+                  onChange={(e) => setAiInstructions(e.target.value)}
+                  placeholder="e.g. Include zero-allocation iterators, strictly clean syntax, concise identifiers"
+                  className="search-input"
+                  style={{ width: '100%', height: 38 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 6 }}>
+                <span style={{ fontSize: '0.74rem', color: 'var(--t3)', fontFamily: 'var(--font-mono)' }}>
+                  Generates clean, indentation-standard code ready for the DevType practice engine.
+                </span>
+                <button
+                  type="submit"
+                  disabled={aiGenerating}
+                  className="btn btn-primary btn-sm"
+                  style={{
+                    height: 38,
+                    padding: '0 20px',
+                    background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                    boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)',
+                  }}
+                >
+                  <Sparkles size={14} className={aiGenerating ? 'animate-spin' : ''} />
+                  <span>{aiGenerating ? 'Generating with DeepSeek V4...' : 'Generate Code Blueprint'}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* Generated Result Preview Card */}
+            {aiResult && (
+              <div
+                style={{
+                  marginTop: 14,
+                  borderRadius: 'var(--r16)',
+                  background: 'var(--bg-surface)',
+                  border: '1.5px solid var(--glass-border)',
+                  boxShadow: 'var(--shadow-floating-panel)',
+                  padding: 22,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  transition: 'all var(--t-fast)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <span className="badge badge-indigo">{aiResult.language}</span>
+                      <span className="badge badge-teal">{aiResult.difficulty}</span>
+                      <span className="badge badge-cyan">{aiResult.exerciseType || 'Algorithm'}</span>
+                    </div>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--t1)', margin: 0, letterSpacing: '-0.01em' }}>
+                      {aiResult.title}
+                    </h3>
+                    {aiResult.description && (
+                      <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--t2)', lineHeight: 1.55 }}>
+                        {aiResult.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '6px 14px',
+                        borderRadius: 'var(--r-pill)',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--glass-border-sub)',
+                        fontSize: '0.74rem',
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--t2)',
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Clock size={12} color="var(--brand)" /> ~{aiResult.estimatedDurationSeconds || 90}s
+                      </span>
+                      <span>{aiResult.lineCount || aiResult.code?.split('\n').length || 0} lines</span>
+                      <span>{aiResult.characterCount || aiResult.code?.length || 0} chars</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Code Block */}
+                <div
+                  style={{
+                    position: 'relative',
+                    borderRadius: 'var(--r10)',
+                    overflow: 'hidden',
+                    border: '1px solid var(--glass-border)',
+                    background: 'var(--code-bg, #090E17)',
+                    boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.25)',
+                  }}
+                >
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: 18,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.84rem',
+                      lineHeight: 1.6,
+                      color: 'var(--t1)',
+                      overflowX: 'auto',
+                      maxHeight: 380,
+                    }}
+                  >
+                    <code>{aiResult.code}</code>
+                  </pre>
+                </div>
+
+                {/* Result Action Buttons */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    paddingTop: 12,
+                    borderTop: '1px solid var(--glass-border-sub)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleSendAiToWorkbench}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    <Code2 size={13} />
+                    <span>Open in Workbench Editor</span>
+                  </button>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={handleSaveAiTemplate}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      <Bookmark size={13} />
+                      <span>Save to Library</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePracticeAiDirectly(null)}
+                      className="btn btn-primary btn-sm"
+                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#FFFFFF' }}
+                    >
+                      <Play size={13} fill="currentColor" strokeWidth={0} />
+                      <span>Practice Blueprint Now</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Previously Saved AI Templates Gallery */}
+            {aiSavedTemplates.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Sparkles size={15} color="#818cf8" />
+                  <h4 style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--t1)', margin: 0 }}>
+                    Your Saved AI Blueprints ({aiSavedTemplates.length})
+                  </h4>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                  {aiSavedTemplates.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: 10,
+                        background: 'var(--bg-surface)',
+                        border: '1px solid var(--glass-border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                          <span className="badge badge-indigo" style={{ fontSize: '0.68rem' }}>
+                            {t.language}
+                          </span>
+                          <span className="badge badge-teal" style={{ fontSize: '0.68rem' }}>
+                            {t.difficulty}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--t1)' }}>
+                          {t.title}
+                        </div>
+                        {t.description && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--t3)', marginTop: 4, lineHeight: 1.4 }}>
+                            {t.description}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: '1px solid var(--glass-border-sub)' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--t3)', fontFamily: 'var(--font-mono)' }}>
+                          ~{t.estimatedDurationSeconds || 90}s
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handlePracticeAiDirectly(t)}
+                          className="btn btn-primary btn-xs"
+                          style={{ height: 26, padding: '0 10px' }}
+                        >
+                          <Play size={10} fill="currentColor" strokeWidth={0} />
+                          <span>Practice</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

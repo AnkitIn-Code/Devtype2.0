@@ -520,33 +520,90 @@ export function computeDayDistribution(sessions) {
 }
 
 /**
- * Compute Progression Timeline for Recharts
- * Sorted chronological (oldest to newest)
+ * Compute Progression Timeline for Recharts.
+ * Aggregates sessions by date so that each day has exactly ONE reading
+ * with the average Net WPM, Gross WPM, Accuracy, and total session count for that day.
+ * Sorted chronologically (oldest to newest).
  */
 export function computeProgressionTimeline(sessions) {
   if (!sessions || sessions.length === 0) return [];
 
-  const sorted = [...sessions].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
+  // Group sessions by local calendar date (YYYY-MM-DD)
+  const dayGroups = new Map();
 
-  return sorted.map((s, idx) => {
+  sessions.forEach((s) => {
     const d = new Date(s.date);
-    const label = !isNaN(d.getTime())
-      ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : `Session ${idx + 1}`;
+    if (isNaN(d.getTime())) return;
+
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    if (!dayGroups.has(dateKey)) {
+      dayGroups.set(dateKey, {
+        dateKey,
+        sampleDate: d,
+        sessions: [],
+      });
+    }
+    dayGroups.get(dateKey).sessions.push(s);
+  });
+
+  // Sort groups chronologically
+  const sortedDayKeys = Array.from(dayGroups.keys()).sort((a, b) => {
+    return dayGroups.get(a).sampleDate.getTime() - dayGroups.get(b).sampleDate.getTime();
+  });
+
+  return sortedDayKeys.map((key, idx) => {
+    const group = dayGroups.get(key);
+    if (!group) return null;
+    const daySessions = group.sessions || [];
+    const d = group.sampleDate;
+    const dateKey = key;
+
+    // Filter out aborted zero-duration sessions if there are valid sessions for this day
+    const validSessions = daySessions.filter(
+      (s) => (s.durationSeconds && s.durationSeconds > 0) || (s.wpm && s.wpm > 0)
+    );
+    const activeList = validSessions.length > 0 ? validSessions : daySessions;
+
+    const count = activeList.length || 1;
+    const totalWpm = activeList.reduce((sum, s) => sum + (Number(s.wpm) || 0), 0);
+    const totalGross = activeList.reduce((sum, s) => sum + (Number(s.grossWpm ?? s.wpm) || 0), 0);
+    const totalAccuracy = activeList.reduce((sum, s) => sum + (Number(s.accuracy) || 0), 0);
+
+    const avgWpm = Math.max(0, Math.round(totalWpm / count) || 0);
+    const avgGrossWpm = Math.max(0, Math.round(totalGross / count) || 0);
+    const avgAccuracy = Math.max(0, Math.min(100, Math.round(totalAccuracy / count) || 0));
+
+    // Collect unique languages practiced that day
+    const uniqueLangs = Array.from(
+      new Set(daySessions.map((s) => s.language).filter(Boolean))
+    );
+    const langDisplay = uniqueLangs.length <= 2 ? uniqueLangs.join(', ') : `${uniqueLangs[0]} +${uniqueLangs.length - 1}`;
+
+    const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const fullDate = d.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    const title = daySessions.length === 1
+      ? (daySessions[0].snippetTitle || daySessions[0].title || 'Practice Session')
+      : `${daySessions.length} Drills Completed`;
 
     return {
       index: idx + 1,
+      dateKey,
       label,
-      fullDate: !isNaN(d.getTime()) ? d.toLocaleDateString('en-US') : '',
-      wpm: s.wpm || 0,
-      grossWpm: s.grossWpm || s.wpm || 0,
-      accuracy: s.accuracy || 0,
-      title: s.snippetTitle || s.title || 'Snippet',
-      language: s.language || 'Code',
+      fullDate,
+      wpm: avgWpm,
+      grossWpm: avgGrossWpm,
+      accuracy: avgAccuracy,
+      sessionCount: daySessions.length,
+      title,
+      language: langDisplay || 'Code',
     };
-  });
+  }).filter(Boolean);
 }
 
 /**

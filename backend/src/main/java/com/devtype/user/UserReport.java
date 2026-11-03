@@ -45,6 +45,18 @@ public class UserReport extends AuditableEntity {
     @Column(name = "reviewed_at")
     private Instant reviewedAt;
 
+    @Column(name = "title", length = 150)
+    private String title;
+
+    @Column(name = "priority", length = 30)
+    private String priority = "NORMAL";
+
+    @Column(name = "is_system_flagged")
+    private Boolean isSystemFlagged = false;
+
+    @Column(name = "admin_response", columnDefinition = "TEXT")
+    private String adminResponse;
+
     @Column(name = "resolution_note", columnDefinition = "TEXT")
     private String resolutionNote;
 
@@ -122,6 +134,38 @@ public class UserReport extends AuditableEntity {
 
     public void setResolutionNote(String resolutionNote) {
         this.resolutionNote = resolutionNote;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getPriority() {
+        return priority != null ? priority : "NORMAL";
+    }
+
+    public void setPriority(String priority) {
+        this.priority = priority;
+    }
+
+    public Boolean getIsSystemFlagged() {
+        return isSystemFlagged != null && isSystemFlagged;
+    }
+
+    public void setIsSystemFlagged(Boolean isSystemFlagged) {
+        this.isSystemFlagged = isSystemFlagged;
+    }
+
+    public String getAdminResponse() {
+        return adminResponse;
+    }
+
+    public void setAdminResponse(String adminResponse) {
+        this.adminResponse = adminResponse;
     }
 }
 

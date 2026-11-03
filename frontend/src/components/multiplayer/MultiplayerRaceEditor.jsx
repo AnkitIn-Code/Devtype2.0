@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { Clock, Send, LogOut, Trophy, MessageSquare } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Clock, Send, LogOut, Trophy, MessageSquare, MousePointerClick, ShieldAlert } from 'lucide-react';
+import { supportService } from '../../services/supportService';
 
 export default function MultiplayerRaceEditor({
   room,
@@ -17,10 +18,30 @@ export default function MultiplayerRaceEditor({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [localChats, setLocalChats] = useState([]);
   const [countdown, setCountdown] = useState(null);
+  const [isFocused, setIsFocused] = useState(true);
 
   const inputRef = useRef(null);
   const sequenceRef = useRef(me?.sequence || 0);
   const timerRef = useRef(null);
+  const [antiCheatAlert, setAntiCheatAlert] = useState(null);
+  const lastKeyTimeRef = useRef(0);
+  const suspiciousBurstCountRef = useRef(0);
+  const isAdmin = user?.role === 'ROLE_ADMIN' || user?.role === 'ADMIN' || user?.isAdmin;
+
+  const triggerAntiCheat = useCallback((violationType, details) => {
+    if (isAdmin) return;
+    setAntiCheatAlert({
+      violationType,
+      details,
+      timestamp: new Date().toLocaleTimeString(),
+    });
+    const matchMode = isRanked ? 'RANKED_ARENA_MATCH' : 'MULTIPLAYER_MATCH';
+    supportService.reportAntiCheat({
+      violationType,
+      mode: matchMode,
+      details: `Room "${room?.title || room?.id || 'Match'}" [${room?.language || 'Unknown'}] - ${details}`,
+    });
+  }, [isRanked, room, isAdmin]);
 
   // Sync typing progress and sequence if me updates from server
   useEffect(() => {
@@ -85,8 +106,29 @@ export default function MultiplayerRaceEditor({
   useEffect(() => {
     if (isRacing) {
       inputRef.current?.focus();
+      setIsFocused(true);
     }
   }, [isRacing]);
+
+  // When unfocused during racing, typing any key auto-refocuses editor unless focused in chat/another input
+  useEffect(() => {
+    if (isFocused || !isRacing || isFinished) return;
+
+    const handleWindowKeyDown = (e) => {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || document.activeElement?.isContentEditable) {
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Tab' || e.key === 'Escape') return;
+
+      inputRef.current?.focus();
+      setIsFocused(true);
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [isFocused, isRacing, isFinished]);
 
   // Compute metrics
   const correctCount = Math.min(input.length, target.length);
@@ -101,7 +143,32 @@ export default function MultiplayerRaceEditor({
   const handleKeyDown = (e) => {
     if (!isRacing || isFinished || me?.forfeited) return;
 
+    if (antiCheatAlert) return;
+
+    if (e.isTrusted === false) {
+      e.preventDefault();
+      triggerAntiCheat('SCRIPT_INJECTION', 'Untrusted synthetic event dispatched via browser automation/script in multiplayer race.');
+      return;
+    }
+
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const key = e.key;
+
+    // Real-time burst interval check (>280 WPM with uniform delta < 12ms indicates bot/script injection)
+    const now = performance.now();
+    const delta = now - lastKeyTimeRef.current;
+    lastKeyTimeRef.current = now;
+    if (delta < 12 && key.length === 1) {
+      suspiciousBurstCountRef.current += 1;
+      if (suspiciousBurstCountRef.current > 5) {
+        e.preventDefault();
+        triggerAntiCheat('SCRIPT_INJECTION', 'Abnormal keystroke cadence: consecutive keystroke interval < 12ms (>500 WPM burst). Automated script detected.');
+        return;
+      }
+    } else {
+      suspiciousBurstCountRef.current = 0;
+    }
 
     if (e.key === 'Backspace') {
       e.preventDefault();
@@ -301,6 +368,24 @@ export default function MultiplayerRaceEditor({
                 <span>Template Completed! Finalizing Results...</span>
               </div>
             )}
+            {!isFocused && isRacing && !isFinished && (
+              <div
+                className="editor-focus-overlay animate-fade-in"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  inputRef.current?.focus();
+                  setIsFocused(true);
+                }}
+              >
+                <div className="focus-prompt-pill">
+                  <MousePointerClick size={18} className="prompt-icon animate-pulse" />
+                  <div className="focus-prompt-text">
+                    <strong>Click here to continue</strong>
+                    <span>or press any key to resume race</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <pre className="mp-code-pre">
               {renderCodeChars()}
             </pre>
@@ -309,7 +394,13 @@ export default function MultiplayerRaceEditor({
               className="mp-hidden-input"
               value={input}
               onChange={() => {}}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
               onKeyDown={handleKeyDown}
+              onPaste={(e) => {
+                e.preventDefault();
+                triggerAntiCheat('CLIPBOARD_PASTE', 'Attempted to paste clipboard code directly into multiplayer race buffer.');
+              }}
               autoFocus
               spellCheck={false}
               autoCapitalize="off"
@@ -317,6 +408,44 @@ export default function MultiplayerRaceEditor({
               autoCorrect="off"
               aria-label="Code Race Input Buffer"
             />
+
+            {/* Anti-Cheat Alert Banner */}
+            {antiCheatAlert && (
+              <div
+                className="anti-cheat-alert-banner animate-fade-in"
+                style={{
+                  position: 'absolute',
+                  inset: '16px',
+                  borderRadius: '12px',
+                  background: 'rgba(15, 23, 42, 0.95)',
+                  border: '2px solid #EF4444',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '24px',
+                  textAlign: 'center',
+                  zIndex: 50,
+                  boxShadow: '0 8px 32px rgba(239, 68, 68, 0.3)',
+                }}
+              >
+                <ShieldAlert size={42} style={{ color: '#EF4444', marginBottom: '12px' }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#EF4444', margin: '0 0 8px 0' }}>
+                  Anti-Cheat Incident Flagged
+                </h3>
+                <p style={{ color: 'var(--t2)', fontSize: '0.9rem', maxWidth: '480px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
+                  {antiCheatAlert.violationType} detected ({antiCheatAlert.details}). Input buffer locked and an automated moderation report has been submitted to platform administrators.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setAntiCheatAlert(null)}
+                  style={{ borderColor: '#EF4444', color: '#EF4444' }}
+                >
+                  Acknowledge & Dismiss Alert
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Bottom Live Metrics Row */}

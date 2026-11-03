@@ -22,7 +22,11 @@ public record AdminUserResponse(
         AccountType accountType,
         Long totalXp,
         Instant createdAt,
-        Instant lastLoginAt
+        Instant lastLoginAt,
+        Instant suspendedUntil,
+        String suspensionReason,
+        Instant deactivatedAt,
+        Instant scheduledDeletionAt
 ) {
     public static AdminUserResponse fromUser(User user) {
         return new AdminUserResponse(
@@ -36,7 +40,11 @@ public record AdminUserResponse(
                 user.getAccountType(),
                 user.getTotalXp() != null ? user.getTotalXp() : 0L,
                 user.getCreatedAt(),
-                user.getLastLoginAt()
+                user.getLastLoginAt(),
+                user.getSuspendedUntil(),
+                user.getSuspensionReason(),
+                user.getDeactivatedAt(),
+                user.getScheduledDeletionAt()
         );
     }
 }

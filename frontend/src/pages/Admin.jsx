@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, ChevronRight, Code2, FileClock, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck, Users, ClipboardList, Moon, Sun, X } from 'lucide-react';
+import { Activity, ChevronRight, Code2, FileClock, LayoutDashboard, LogOut, Menu, RefreshCw, ShieldCheck, Users, ClipboardList, Moon, Sun, X, FileCode2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { adminService } from '../services/adminService';
@@ -8,6 +8,7 @@ import useAdminQuery from '../components/admin/useAdminQuery';
 import { initials } from '../components/admin/adminFormat';
 import AdminOverview from '../components/admin/AdminOverview';
 import AdminUsers from '../components/admin/AdminUsers';
+import AdminTemplates from '../components/admin/AdminTemplates';
 import AdminReports from '../components/admin/AdminReports';
 import AdminAudit from '../components/admin/AdminAudit';
 import AdminSystem from '../components/admin/AdminSystem';
@@ -16,7 +17,8 @@ import './Admin.css';
 const NAVIGATION = [
   { to: '/admin', label: 'Overview', icon: LayoutDashboard, description: 'A clear view of your community, activity, and platform health.' },
   { to: '/admin/users', label: 'User management', icon: Users, description: 'Understand your community and manage account access responsibly.' },
-  { to: '/admin/reports', label: 'Moderation', icon: ClipboardList, description: 'Review reports, document decisions, and protect your community.' },
+  { to: '/admin/templates', label: 'Templates & Studio', icon: FileCode2, description: 'Manage, edit, review, and create database typing templates manually or via AI.' },
+  { to: '/admin/reports', label: 'Support & Moderation', icon: ClipboardList, description: 'Manage user emergency tickets, incident reports, and moderation issues.' },
   { to: '/admin/audit', label: 'Audit log', icon: FileClock, description: 'A traceable history of administrative changes across DevType.' },
   { to: '/admin/system', label: 'System health', icon: Activity, description: 'Monitor application performance and investigate operational issues.' },
 ];
@@ -71,6 +73,7 @@ export default function Admin() {
         <Routes>
           <Route index element={<AdminOverview overview={overview} metrics={metrics} refreshKey={refreshKey} />} />
           <Route path="users" element={<AdminUsers refreshKey={refreshKey} onChange={refresh} />} />
+          <Route path="templates" element={<AdminTemplates refreshKey={refreshKey} onChange={refresh} />} />
           <Route path="reports" element={<AdminReports refreshKey={refreshKey} onChange={refresh} />} />
           <Route path="audit" element={<AdminAudit refreshKey={refreshKey} />} />
           <Route path="system" element={<AdminSystem metrics={metrics} />} />

@@ -31,7 +31,7 @@ public class MultiplayerService {
     private final SecureRandom random = new SecureRandom();
     @Value("${devtype.multiplayer.queue-timeout-seconds:120}") private long queueTimeout = 120;
     @Value("${devtype.multiplayer.max-characters-per-second:40}") private int maxCharactersPerSecond = 40;
-    @Value("${devtype.multiplayer.reconnect-seconds:120}") private long reconnect = 120;
+    @Value("${devtype.multiplayer.reconnect-seconds:30}") private long reconnect = 30;
     private final Map<String, RaceRoom> activeRooms = new ConcurrentHashMap<>();
     private final Map<Long, String> userRooms = new ConcurrentHashMap<>();
     private final java.util.concurrent.ExecutorService asyncDbExecutor = java.util.concurrent.Executors.newFixedThreadPool(4);
@@ -62,7 +62,11 @@ public class MultiplayerService {
     }
 
     public void lock() {
-        // High-performance in-memory synchronization; zero remote DB round-trips!
+        try {
+            db.queryForObject("SELECT id FROM multiplayer_lock WHERE id=1 FOR UPDATE", Integer.class);
+        } catch (Exception e) {
+            log.debug("Database mutex lock bypassed or not present: {}", e.getMessage());
+        }
     }
     public RaceRoom getCachedRoom(String id) {
         if (id == null) return null;
@@ -78,22 +82,20 @@ public class MultiplayerService {
         if(rows.isEmpty()) throw new ApiException("Room not found.", HttpStatus.NOT_FOUND);
         try {
             RaceRoom r = json.readValue(rows.getFirst(), RaceRoom.class);
-            if (!terminal(r)) {
-                activeRooms.put(r.id, r);
-                for (RaceRoom.Player p : r.players) {
-                    userRooms.put(p.id, r.id);
-                }
+            activeRooms.put(r.id, r);
+            for (RaceRoom.Player p : r.players) {
+                userRooms.put(p.id, r.id);
             }
             return r;
         } catch(Exception e) { throw new IllegalStateException("Cannot read persisted race", e); }
     }
     private void save(RaceRoom room) {
         room.revision++;
+        activeRooms.put(room.id, room);
+        for (RaceRoom.Player p : room.players) {
+            userRooms.put(p.id, room.id);
+        }
         if (terminal(room)) {
-            activeRooms.remove(room.id);
-            for (RaceRoom.Player p : room.players) {
-                userRooms.remove(p.id);
-            }
             try {
                 db.update("UPDATE multiplayer_rooms SET state=?, snapshot=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                         room.state, json.writeValueAsString(room), room.id);
@@ -101,10 +103,6 @@ public class MultiplayerService {
                 log.error("Failed to commit completed room {}: {}", room.id, e.getMessage());
             }
         } else {
-            activeRooms.put(room.id, room);
-            for (RaceRoom.Player p : room.players) {
-                userRooms.put(p.id, room.id);
-            }
             final String snapshotState = room.state;
             final String roomId = room.id;
             try {
@@ -131,6 +129,9 @@ public class MultiplayerService {
         RaceRoom r = null;
         if (roomId != null) {
             r = activeRooms.get(roomId);
+            if (r == null) {
+                try { r = read(roomId); } catch (Exception ignored) {}
+            }
         }
         if (r == null) {
             List<String> ids = db.queryForList("SELECT room_id FROM multiplayer_members WHERE user_id=?", String.class, uid);
@@ -146,14 +147,7 @@ public class MultiplayerService {
                 }
             }
             advance(r);
-            if (terminal(r)) {
-                activeRooms.remove(r.id);
-                userRooms.remove(uid);
-                save(r);
-                return null;
-            }
-            activeRooms.put(r.id, r);
-            userRooms.put(uid, r.id);
+            save(r);
             return r;
         }
         return null;
@@ -190,24 +184,23 @@ public class MultiplayerService {
 
     public RaceRoom enter(long uid, String mode, long templateId, String language, int capacity) {
         synchronized(lifecycleLock) {
+            lock();
             User u = user(uid);
             RaceRoom existing = current(uid);
             if (existing != null && !terminal(existing)) {
-                // If user was alone in SEARCHING state, clean it up so a fresh random match search begins
-                if (existing.players.size() <= 1 && (existing.state.equals("SEARCHING") || existing.state.equals("READY"))) {
-                    cancel(existing, "Abandoned for new room.");
-                    save(existing);
-                    db.update("DELETE FROM multiplayer_members WHERE user_id=?", u.getId());
-                    userRooms.remove(uid);
-                } else if (existing.mode.equals(mode) && (templateId <= 0 || existing.templateId == templateId) && existing.players.size() > 1) {
+                if (existing.mode.equals(mode) && (templateId <= 0 || existing.templateId == templateId)) {
                     return existing;
-                } else if (existing.state.equals("RACING") && (existing.deadline < System.currentTimeMillis() || existing.players.stream().allMatch(p -> p.finishedAt > 0 || p.forfeited))) {
-                    finish(existing, System.currentTimeMillis());
-                    save(existing);
-                    userRooms.remove(uid);
+                }
+                if (existing.state.equals("RACING")) {
+                    if (existing.deadline < System.currentTimeMillis() || existing.players.stream().allMatch(p -> p.finishedAt > 0 || p.forfeited)) {
+                        finish(existing, System.currentTimeMillis());
+                        save(existing);
+                        userRooms.remove(uid);
+                    } else {
+                        throw error("Complete or leave your current active race first.");
+                    }
                 } else {
-                    // Force abandon current stale room to allow re-entry
-                    cancel(existing, "Abandoned for new match.");
+                    cancel(existing, "Abandoned for new room.");
                     save(existing);
                     db.update("DELETE FROM multiplayer_members WHERE user_id=?", u.getId());
                     userRooms.remove(uid);
@@ -327,17 +320,7 @@ public class MultiplayerService {
         RaceRoom.Player p=new RaceRoom.Player(); p.id=u.getId(); p.name=u.getDisplayName(); p.rating=elo; p.lastSeen=System.currentTimeMillis(); room.players.add(p);
         userRooms.put(u.getId(), room.id);
         if(room.players.size()==room.capacity) {
-            if (ranked(room)) {
-                for (RaceRoom.Player pl : room.players) {
-                    pl.ready = true;
-                }
-                long now = System.currentTimeMillis();
-                room.state = "COUNTDOWN";
-                room.startsAt = now + 4000;
-                room.deadline = room.startsAt + 180000;
-            } else {
-                room.state = "READY";
-            }
+            room.state = "READY";
         }
     }
     public RaceRoom join(long uid,String code) {
@@ -362,115 +345,127 @@ public class MultiplayerService {
     public RaceRoom event(long uid,String id,String type,long sequence,String content,String requestId) {
         if (id == null || id.isBlank()) throw error("Room ID required.");
         String cleanId = RaceRules.roomId(id);
-        RaceRoom r = read(cleanId);
-        RaceRoom.Player p = member(r, uid);
-        advance(r);
-        long now = System.currentTimeMillis();
-        p.lastSeen = now;
+        try {
+            RaceRoom r = read(cleanId);
+            RaceRoom.Player p = member(r, uid);
+            advance(r);
+            long now = System.currentTimeMillis();
+            p.lastSeen = now;
 
-        if (type.equals("SYNC")) {
-            save(r);
-            return r;
-        }
-        if (type.equals("CHAT")) {
-            if (terminal(r)) throw error("Chat is closed for this room.");
-            if (content == null || content.isBlank() || content.length() > 500) throw error("Messages must contain 1–500 characters.");
-            String validReqId = (requestId != null && !requestId.isBlank()) ? requestId : UUID.randomUUID().toString();
-            if (r.chat.stream().anyMatch(c -> c.senderId() == uid && c.requestId().equals(validReqId))) return r;
-            if (now - p.lastChatAt < 100) throw error("Please wait before sending another message.");
-            p.lastChatAt = now;
-            r.chat.add(new RaceRoom.Chat(UUID.randomUUID().toString(), validReqId, uid, p.name, now, content.strip()));
-            if (r.chat.size() > 100) r.chat.removeFirst();
-        } else if (type.equals("LEAVE")) {
-            if (!terminal(r)) {
-                if (r.state.equals("RACING")) {
-                    if (p.finishedAt == 0) p.forfeited = true;
-                } else if (!r.mode.equals("private-room")) {
-                    cancel(r, "A participant left before the race.");
-                } else {
-                    r.players.remove(p);
-                    if (r.players.isEmpty()) {
-                        cancel(r, "Room is empty.");
-                    } else {
-                        r.host = r.players.getFirst().id;
-                        r.state = "READY";
-                        r.startsAt = 0;
-                        r.players.forEach(x -> x.ready = false);
-                    }
-                }
+            if (type.equals("SYNC")) {
+                save(r);
+                return r;
             }
-            userRooms.remove(uid);
-            if (!r.state.equals("RACING")) db.update("DELETE FROM multiplayer_members WHERE user_id=? AND room_id=?", uid, r.id);
-        } else if (type.equals("CONFIG")) {
-            if (!r.state.equals("READY")) throw error("Cannot change configuration while racing.");
-            if (r.host != uid) throw error("Only the host can modify room settings.");
-            if (content != null && !content.isBlank()) {
-                try {
-                    JsonNode cfg = json.readTree(content);
-                    if (cfg.has("capacity")) {
-                        int cap = cfg.get("capacity").asInt();
-                        if (cap >= 2 && cap <= 8) r.capacity = cap;
-                    }
-                    if (cfg.has("templateId")) {
-                        long tId = cfg.get("templateId").asLong();
-                        if (tId > 0) {
-                            templates.findByIdAndPublishedTrue(tId).ifPresent(t -> {
-                                try {
-                                    r.target = RaceRules.normalize(t.getContent(), t.getLanguage());
-                                    r.templateId = t.getId();
-                                    r.title = t.getTitle();
-                                    r.language = t.getLanguage();
-                                    r.difficulty = t.getDifficulty().name();
-                                } catch (Exception ignored) {}
-                            });
+            if (type.equals("CHAT")) {
+                if (terminal(r)) throw error("Chat is closed for this room.");
+                if (content == null || content.isBlank() || content.length() > 500) throw error("Messages must contain 1–500 characters.");
+                String validReqId = (requestId != null && !requestId.isBlank()) ? requestId : UUID.randomUUID().toString();
+                if (r.chat.stream().anyMatch(c -> c.senderId() == uid && c.requestId().equals(validReqId))) return r;
+                if (now - p.lastChatAt < 100) throw error("Please wait before sending another message.");
+                p.lastChatAt = now;
+                r.chat.add(new RaceRoom.Chat(UUID.randomUUID().toString(), validReqId, uid, p.name, now, content.strip()));
+                if (r.chat.size() > 100) r.chat.removeFirst();
+            } else if (type.equals("LEAVE")) {
+                if (!terminal(r)) {
+                    if (r.state.equals("RACING")) {
+                        if (p.finishedAt == 0) p.forfeited = true;
+                    } else if (!r.mode.equals("private-room")) {
+                        cancel(r, "A participant left before the race.");
+                    } else {
+                        r.players.remove(p);
+                        if (r.players.isEmpty()) {
+                            cancel(r, "Room is empty.");
+                        } else {
+                            r.host = r.players.getFirst().id;
+                            r.state = "READY";
+                            r.startsAt = 0;
+                            r.players.forEach(x -> x.ready = false);
                         }
                     }
-                } catch (Exception ignored) {}
-            }
-        } else if (type.equals("READY")) {
-            if (!r.state.equals("READY")) throw error("The room is not ready.");
-            p.ready = true;
-            p.lastSeen = now;
-            int minRequired = ranked(r) ? r.capacity : (r.mode.equals("private-room") ? 1 : 2);
-            if (r.players.size() >= minRequired && r.players.stream().allMatch(x -> x.ready)) {
-                r.state = "COUNTDOWN";
-                r.startsAt = now + 5000;
-                r.deadline = r.startsAt + 180000;
-            }
-        } else if (type.equals("INPUT")) {
-            if (!r.state.equals("RACING") || p.forfeited) throw error("Race input is not accepted in this state.");
-            if (sequence <= p.sequence || p.finishedAt > 0) return r;
-            if (content == null || content.length() > r.target.length() + 1000) throw error("Invalid race input.");
-            if (!r.mode.equals("bug-fix") && content.codePointCount(0, content.length()) > Math.max(1, (now - r.startsAt) * maxCharactersPerSecond / 1000))
-                throw error("Submission exceeds the permitted typing rate.");
-            if (!r.mode.equals("bug-fix")) p.mistakes += RaceRules.newMistakes(r.target, p.input, content.replace("\r\n", "\n").replace('\r', '\n'));
-            p.sequence = sequence;
-            p.input = content.replace("\r\n", "\n").replace('\r', '\n');
-            p.lastSeen = now;
-            RaceRules.Metrics m = RaceRules.metrics(r.target, p.input);
-            p.errors = m.errors();
-            p.progress = m.progress();
-            p.score = RaceRules.score(m.correct(), p.mistakes);
-            if (r.mode.equals("bug-fix")) {
-                boolean passed = BugFixRules.evaluate(p.input, r.bugTests);
-                p.progress = passed ? 100 : 0;
-                p.errors = passed ? 0 : 1;
-                p.score = passed ? r.bugTests.size() : 0;
-                if (passed) p.finishedAt = now;
-            } else if (p.input.equals(r.target)) p.finishedAt = now;
-        } else throw error("Unknown room event.");
-        advance(r);
-        save(r);
-        return r;
+                }
+                if (!r.state.equals("RACING")) {
+                    userRooms.remove(uid);
+                    db.update("DELETE FROM multiplayer_members WHERE user_id=? AND room_id=?", uid, r.id);
+                }
+            } else if (type.equals("CONFIG")) {
+                if (!r.state.equals("READY")) throw error("Cannot change configuration while racing.");
+                if (r.host != uid) throw error("Only the host can modify room settings.");
+                if (content != null && !content.isBlank()) {
+                    try {
+                        JsonNode cfg = json.readTree(content);
+                        if (cfg.has("capacity")) {
+                            int cap = cfg.get("capacity").asInt();
+                            if (cap >= 2 && cap <= 8) r.capacity = cap;
+                        }
+                        if (cfg.has("templateId")) {
+                            long tId = cfg.get("templateId").asLong();
+                            if (tId > 0) {
+                                templates.findByIdAndPublishedTrue(tId).ifPresent(t -> {
+                                    try {
+                                        r.target = RaceRules.normalize(t.getContent(), t.getLanguage());
+                                        r.templateId = t.getId();
+                                        r.title = t.getTitle();
+                                        r.language = t.getLanguage();
+                                        r.difficulty = t.getDifficulty().name();
+                                    } catch (Exception ignored) {}
+                                });
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            } else if (type.equals("READY")) {
+                if (r.state.equals("COUNTDOWN")) {
+                    p.ready = true;
+                    p.lastSeen = now;
+                    save(r);
+                    return r;
+                }
+                if (!r.state.equals("READY")) throw error("The room is not ready.");
+                p.ready = true;
+                p.lastSeen = now;
+                int minRequired = ranked(r) ? r.capacity : (r.mode.equals("private-room") ? 1 : 2);
+                if (r.players.size() >= minRequired && r.players.stream().allMatch(x -> x.ready)) {
+                    r.state = "COUNTDOWN";
+                    r.startsAt = now + 5000;
+                    r.deadline = r.startsAt + 180000;
+                }
+            } else if (type.equals("INPUT")) {
+                if (!r.state.equals("RACING") || p.forfeited) throw error("Race input is not accepted in this state.");
+                if (sequence <= p.sequence || p.finishedAt > 0) return r;
+                if (content == null || content.length() > r.target.length() + 1000) throw error("Invalid race input.");
+                if (!r.mode.equals("bug-fix") && content.codePointCount(0, content.length()) > Math.max(1, (now - r.startsAt) * maxCharactersPerSecond / 1000))
+                    throw error("Submission exceeds the permitted typing rate.");
+                if (!r.mode.equals("bug-fix")) p.mistakes += RaceRules.newMistakes(r.target, p.input, content.replace("\r\n", "\n").replace('\r', '\n'));
+                p.sequence = sequence;
+                p.input = content.replace("\r\n", "\n").replace('\r', '\n');
+                p.lastSeen = now;
+                RaceRules.Metrics m = RaceRules.metrics(r.target, p.input);
+                p.errors = m.errors();
+                p.progress = m.progress();
+                p.score = RaceRules.score(m.correct(), p.mistakes);
+                if (r.mode.equals("bug-fix")) {
+                    boolean passed = BugFixRules.evaluate(p.input, r.bugTests);
+                    p.progress = passed ? 100 : 0;
+                    p.errors = passed ? 0 : 1;
+                    p.score = passed ? r.bugTests.size() : 0;
+                    if (passed) p.finishedAt = now;
+                } else if (p.input.equals(r.target)) p.finishedAt = now;
+            } else throw error("Unknown room event.");
+            advance(r);
+            save(r);
+            return r;
+        } catch (RuntimeException e) {
+            activeRooms.remove(cleanId);
+            throw e;
+        }
     }
     private void cancel(RaceRoom r,String reason) {
         r.state="CANCELLED";
         r.reason=reason;
-        activeRooms.remove(r.id);
+        activeRooms.put(r.id, r);
         for (RaceRoom.Player p : r.players) {
-            userRooms.remove(p.id);
+            userRooms.put(p.id, r.id);
         }
-        db.update("DELETE FROM multiplayer_members WHERE room_id=?", r.id);
         log.info("Race cancelled match={} reason={}",r.matchId,reason);
     }
     private void advance(RaceRoom r) {
@@ -490,8 +485,7 @@ public class MultiplayerService {
         if(r.state.equals("RACING")) {
             for(RaceRoom.Player p:r.players) if(p.finishedAt==0&&now-p.lastSeen>reconnect*1000) p.forfeited=true;
             boolean allFinishedOrForfeited = r.players.stream().allMatch(p->p.finishedAt>0||p.forfeited);
-            boolean duelOver = r.mode.equals("duel") && r.players.stream().anyMatch(p -> p.forfeited);
-            if(now>=r.deadline||allFinishedOrForfeited||duelOver) finish(r,now);
+            if(now>=r.deadline||allFinishedOrForfeited) finish(r,now);
         } else if(ranked(r) && r.state.equals("COUNTDOWN")) {
             if (r.players.stream().anyMatch(p -> now - p.lastSeen > reconnect * 1000)) {
                 cancel(r,"A participant did not reconnect before the race started.");
@@ -539,7 +533,6 @@ public class MultiplayerService {
         }
         log.info("Race finalization prepared match={} mode={} participants={}",r.matchId,r.mode,r.players.size());
         r.state="COMPLETED"; if(noContest) r.reason="No completed submissions; no ratings changed.";
-        db.update("DELETE FROM multiplayer_members WHERE room_id=?", r.id);
     }
     private boolean sameResult(RaceRoom.Player a,RaceRoom.Player b) { return a.forfeited==b.forfeited&&a.finishedAt==b.finishedAt&&a.progress==b.progress&&a.errors==b.errors&&a.score==b.score; }
     public void tick() {

@@ -6,11 +6,23 @@ import jakarta.validation.constraints.Size;
 public record CreateReportRequest(
         Long reportedUserId,
 
+        @Size(max = 150, message = "Title cannot exceed 150 characters")
+        String title,
+
         @NotBlank(message = "Category is required")
         @Size(max = 50, message = "Category must not exceed 50 characters")
         String category,
 
+        @Size(max = 30, message = "Priority must not exceed 30 characters")
+        String priority,
+
+        Boolean isSystemFlagged,
+
         @NotBlank(message = "Description is required")
         @Size(min = 5, max = 2000, message = "Description must be between 5 and 2000 characters")
         String description
-) {}
+) {
+    public CreateReportRequest(Long reportedUserId, String category, String description) {
+        this(reportedUserId, null, category, "NORMAL", false, description);
+    }
+}

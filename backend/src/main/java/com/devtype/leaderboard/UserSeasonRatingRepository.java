@@ -11,15 +11,15 @@ import java.util.Optional;
 @Repository
 public interface UserSeasonRatingRepository extends JpaRepository<UserSeasonRating, Long> {
 
-    @Query("SELECT r FROM UserSeasonRating r JOIN FETCH r.user u WHERE r.season.id = :seasonId AND u.status = com.devtype.user.UserStatus.ACTIVE ORDER BY r.rating DESC, r.peakRating DESC, r.wins DESC, u.id ASC")
+    @Query("SELECT r FROM UserSeasonRating r JOIN FETCH r.user u WHERE r.season.id = :seasonId AND u.status = com.devtype.user.UserStatus.ACTIVE AND u.role <> com.devtype.user.UserRole.ADMIN ORDER BY r.rating DESC, r.peakRating DESC, r.wins DESC, u.id ASC")
     List<UserSeasonRating> findLeaderboardBySeasonId(@Param("seasonId") Long seasonId);
 
     Optional<UserSeasonRating> findByUserIdAndSeasonId(Long userId, Long seasonId);
 
-    @Query("SELECT COUNT(r) FROM UserSeasonRating r JOIN r.user u WHERE r.season.id = :seasonId AND u.status = com.devtype.user.UserStatus.ACTIVE")
+    @Query("SELECT COUNT(r) FROM UserSeasonRating r JOIN r.user u WHERE r.season.id = :seasonId AND u.status = com.devtype.user.UserStatus.ACTIVE AND u.role <> com.devtype.user.UserRole.ADMIN")
     long countActiveCompetitorsBySeasonId(@Param("seasonId") Long seasonId);
 
-    @Query("SELECT COUNT(r) FROM UserSeasonRating r WHERE r.season.id = :seasonId AND r.rating > :rating")
+    @Query("SELECT COUNT(r) FROM UserSeasonRating r JOIN r.user u WHERE r.season.id = :seasonId AND r.rating > :rating AND u.status = com.devtype.user.UserStatus.ACTIVE AND u.role <> com.devtype.user.UserRole.ADMIN")
     long countPlayersAheadOf(@Param("seasonId") Long seasonId, @Param("rating") Integer rating);
 
     List<UserSeasonRating> findBySeasonId(Long seasonId);

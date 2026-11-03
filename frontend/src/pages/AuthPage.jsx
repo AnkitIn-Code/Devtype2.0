@@ -188,23 +188,6 @@ export default function AuthPage({ initialMode = 'login' }) {
     return initialMode;
   });
 
-  // Synchronize when route URL changes
-  useEffect(() => {
-    if (location.pathname === '/signup' && mode !== 'signup') {
-      setMode('signup');
-      setLoginError('');
-      setSignupError('');
-    } else if (location.pathname === '/login' && mode !== 'login') {
-      setMode('login');
-      setLoginError('');
-      setSignupError('');
-    }
-  }, [location.pathname, mode]);
-
-  // Destination intended by route guard, or dashboard fallback
-  const redirectDestination = location.state?.from?.pathname || '/dashboard';
-  const infoNotice = location.state?.notice || '';
-
   // ── Login Form State ──
   const [loginData, setLoginData] = useState({
     usernameOrEmail: '',
@@ -228,6 +211,23 @@ export default function AuthPage({ initialMode = 'login' }) {
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupFieldErrors, setSignupFieldErrors] = useState({});
+
+  // Destination intended by route guard, or dashboard fallback
+  const redirectDestination = location.state?.from?.pathname || '/dashboard';
+  const infoNotice = location.state?.notice || '';
+
+  // Synchronize when route URL changes
+  useEffect(() => {
+    if (location.pathname === '/signup' && mode !== 'signup') {
+      setMode('signup');
+      setLoginError('');
+      setSignupError('');
+    } else if (location.pathname === '/login' && mode !== 'login') {
+      setMode('login');
+      setLoginError('');
+      setSignupError('');
+    }
+  }, [location.pathname, mode]);
 
   // Mode Switcher handler with realistic directional animation and React Router sync
   const switchMode = (newMode) => {

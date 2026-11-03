@@ -19,7 +19,7 @@ import {
 import {
   searchPeerDirectory,
   getPeerFullProfile,
-  INITIAL_PEER_DIRECTORY
+  fetchLivePeerDirectory,
 } from '../data/peerDirectoryStore';
 import { authService } from '../services/authService';
 import { achievementService } from '../services/achievementService';
@@ -88,11 +88,14 @@ export default function Profile() {
   const [followedPeers, setFollowedPeers] = useState(() => {
     try {
       const saved = localStorage.getItem(`devtype_following_${user?.id}`);
-      return saved ? JSON.parse(saved) : ['peer-elena', 'peer-marcus'];
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return ['peer-elena', 'peer-marcus'];
+      return [];
     }
   });
+
+  // Authentic live peers discovered from database
+  const [livePeers, setLivePeers] = useState([]);
 
   // Edit form state
   const [editForm, setEditForm] = useState({
@@ -203,7 +206,17 @@ export default function Profile() {
       }
     });
 
-    Promise.allSettled([p1, p2, p3, p4]).finally(() => {
+    const p5 = fetchLivePeerDirectory(user?.id)
+      .then((peers) => {
+        if (isMounted && Array.isArray(peers)) {
+          setLivePeers(peers);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load peer directory for profile:', err);
+      });
+
+    Promise.allSettled([p1, p2, p3, p4, p5]).finally(() => {
       if (isMounted) setIsLoading(false);
     });
 
@@ -335,14 +348,14 @@ export default function Profile() {
 
   // Filtered peer directory for the Add Peer modal
   const filteredPeerDirectory = useMemo(() => {
-    let list = searchPeerDirectory(peerSearchQuery);
+    let list = searchPeerDirectory(peerSearchQuery, livePeers);
     if (peerFilterTab === 'recommended') {
       list = list.filter((p) => p.mutualCount > 1 || p.level >= 10);
     } else if (peerFilterTab === 'top') {
       list = [...list].sort((a, b) => (b.bestWpm || 0) - (a.bestWpm || 0));
     }
     return list;
-  }, [peerSearchQuery, peerFilterTab]);
+  }, [peerSearchQuery, peerFilterTab, livePeers]);
 
   // Toggle follow status
   const handleToggleFollow = (peerId) => {
@@ -367,7 +380,7 @@ export default function Profile() {
     if (isAlreadyConnected || isAlreadySent) return;
 
     const newSentItem = {
-      id: peer.id || `sent-${Date.now()}`,
+      id: peer.id || (peer.name ? `sent-${peer.name}` : `sent-${friends.sent.length + 1}`),
       name: peer.name,
       displayName: peer.displayName,
       avatar: peer.avatar,
@@ -388,7 +401,17 @@ export default function Profile() {
     e.preventDefault();
     if (!directHandleInput.trim()) return;
     const clean = directHandleInput.trim().replace(/^@/, '');
-    const peer = getPeerFullProfile(clean);
+    const peer = getPeerFullProfile(clean, livePeers) || {
+      id: `peer-${clean}`,
+      name: clean,
+      displayName: clean.charAt(0).toUpperCase() + clean.slice(1),
+      title: 'Software Developer',
+      avatar: clean.slice(0, 2).toUpperCase(),
+      avatarBg: 'linear-gradient(135deg, #1E3A8A, #3B82F6)',
+      level: 1,
+      bestWpm: 0,
+      favLang: 'Code',
+    };
     handleConnectPeer(peer);
     setDirectConnectMsg(`Connection request sent to @${clean}!`);
     setDirectHandleInput('');
@@ -1451,7 +1474,7 @@ export default function Profile() {
                     className={`peer-filter-pill-btn ${peerFilterTab === 'all' ? 'active' : ''}`}
                     onClick={() => setPeerFilterTab('all')}
                   >
-                    All Developers ({INITIAL_PEER_DIRECTORY.length})
+                    All Developers ({livePeers.length})
                   </button>
                   <button
                     type="button"
@@ -1474,7 +1497,11 @@ export default function Profile() {
                   {filteredPeerDirectory.length === 0 ? (
                     <div className="empty-state" style={{ padding: '36px 16px', textAlign: 'center' }}>
                       <div className="empty-title">No matching developers found</div>
-                      <div className="empty-desc">Try searching by a different name, handle, or language.</div>
+                      <div className="empty-desc">
+                        {livePeers.length === 0
+                          ? 'No other registered developers are currently discoverable.'
+                          : 'Try searching by a different name, handle, or language.'}
+                      </div>
                     </div>
                   ) : (
                     filteredPeerDirectory.map((peer) => {

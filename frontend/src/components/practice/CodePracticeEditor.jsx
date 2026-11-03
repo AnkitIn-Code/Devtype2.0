@@ -1,6 +1,8 @@
 // src/components/practice/CodePracticeEditor.jsx
-import { useRef, useEffect, useCallback } from 'react';
-import { MousePointerClick, PauseCircle, Terminal } from 'lucide-react';
+import { useRef, useEffect, useCallback, useState } from 'react';
+import { MousePointerClick, PauseCircle, Terminal, ShieldAlert } from 'lucide-react';
+import { supportService } from '../../services/supportService';
+import { useAuth } from '../../context/AuthContext';
 
 export default function CodePracticeEditor({
   tokenizedSnippet,
@@ -19,10 +21,30 @@ export default function CodePracticeEditor({
   hintIndex = null,
   onRequestHint,
 }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ROLE_ADMIN' || user?.role === 'ADMIN' || user?.isAdmin;
+
   const containerRef = useRef(null);
   const hiddenInputRef = useRef(null);
   const activeLineRef = useRef(null);
   const codeBodyRef = useRef(null);
+  const [antiCheatAlert, setAntiCheatAlert] = useState(null);
+  const lastKeyTimeRef = useRef(0);
+  const suspiciousBurstCountRef = useRef(0);
+
+  const triggerAntiCheat = useCallback((violationType, details) => {
+    if (isAdmin) return;
+    setAntiCheatAlert({
+      violationType,
+      details,
+      timestamp: new Date().toLocaleTimeString(),
+    });
+    supportService.reportAntiCheat({
+      violationType,
+      mode: 'PRACTICE_TEMPLATE',
+      details: `Practice snippet "${tokenizedSnippet?.title || 'Snippet'}" - ${details}`,
+    });
+  }, [tokenizedSnippet, isAdmin]);
 
   // Auto-focus on mount
   useEffect(() => {
@@ -30,6 +52,26 @@ export default function CodePracticeEditor({
       hiddenInputRef.current.focus();
     }
   }, [sessionState]);
+
+  // When unfocused, typing any key auto-refocuses editor unless focused on a form field
+  useEffect(() => {
+    if (isFocused || sessionState === 'completed' || sessionState === 'paused') return;
+
+    const handleWindowKeyDown = (e) => {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || document.activeElement?.isContentEditable) {
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Tab' || e.key === 'Escape') return;
+
+      hiddenInputRef.current?.focus();
+      onFocusChange?.(true);
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [isFocused, sessionState, onFocusChange]);
 
   // Keep active line scrolled smoothly into view inside the editor code body only (prevents page tearing)
   useEffect(() => {
@@ -73,6 +115,16 @@ export default function CodePracticeEditor({
         return;
       }
 
+      if (antiCheatAlert) {
+        return;
+      }
+
+      if (e.isTrusted === false) {
+        e.preventDefault();
+        triggerAntiCheat('SCRIPT_INJECTION', 'Untrusted synthetic keyboard event dispatched via browser automation/script.');
+        return;
+      }
+
       if (sessionState === 'paused' || sessionState === 'completed') {
         return;
       }
@@ -83,6 +135,21 @@ export default function CodePracticeEditor({
       }
 
       const key = e.key;
+
+      // Real-time burst interval check (>280 WPM with uniform delta < 12ms indicates bot/script injection)
+      const now = performance.now();
+      const delta = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+      if (delta < 12 && key.length === 1) {
+        suspiciousBurstCountRef.current += 1;
+        if (suspiciousBurstCountRef.current > 5) {
+          e.preventDefault();
+          triggerAntiCheat('SCRIPT_INJECTION', 'Abnormal keystroke cadence: consecutive keystroke interval < 12ms (>500 WPM burst). Automated script detected.');
+          return;
+        }
+      } else {
+        suspiciousBurstCountRef.current = 0;
+      }
 
       if (key === 'Backspace') {
         e.preventDefault();
@@ -139,7 +206,7 @@ export default function CodePracticeEditor({
   return (
     <div
       ref={containerRef}
-      className={`practice-editor-container ${!isFocused ? 'editor-unfocused' : ''}`}
+      className={`practice-editor-container ${isFocused ? 'is-focused' : 'is-unfocused'}`}
       onClick={() => {
         hiddenInputRef.current?.focus();
         onFocusChange?.(true);
@@ -154,17 +221,68 @@ export default function CodePracticeEditor({
         autoCorrect="off"
         spellCheck="false"
         onKeyDown={handleKeyDown}
+        onPaste={(e) => {
+          e.preventDefault();
+          triggerAntiCheat('CLIPBOARD_PASTE', 'Attempted to paste clipboard code directly into code practice editor buffer.');
+        }}
         onFocus={() => onFocusChange?.(true)}
         onBlur={() => onFocusChange?.(false)}
         aria-label="Code practice input buffer"
       />
 
+      {/* Anti-Cheat Alert Banner */}
+      {antiCheatAlert && (
+        <div
+          className="anti-cheat-alert-banner animate-fade-in"
+          style={{
+            padding: '12px 16px',
+            margin: '12px 16px',
+            borderRadius: '10px',
+            background: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            color: '#EF4444',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+            zIndex: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <ShieldAlert size={18} style={{ flexShrink: 0 }} />
+            <span>
+              Anti-Cheat Triggered: {antiCheatAlert.violationType} detected ({antiCheatAlert.details}). Session halted and moderation ticket filed to admin.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setAntiCheatAlert(null)}
+            style={{ fontSize: '0.75rem', padding: '3px 8px', borderColor: '#EF4444', color: '#EF4444' }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Unfocused Banner Overlay */}
-      {!isFocused && sessionState !== 'completed' && (
-        <div className="editor-focus-overlay animate-fade-in">
+      {!isFocused && sessionState !== 'completed' && sessionState !== 'paused' && (
+        <div
+          className="editor-focus-overlay animate-fade-in"
+          onClick={(e) => {
+            e.stopPropagation();
+            hiddenInputRef.current?.focus();
+            onFocusChange?.(true);
+          }}
+        >
           <div className="focus-prompt-pill">
-            <MousePointerClick size={16} className="prompt-icon" />
-            <span>Click anywhere or press any key to focus editor</span>
+            <MousePointerClick size={18} className="prompt-icon animate-pulse" />
+            <div className="focus-prompt-text">
+              <strong>Click here to continue</strong>
+              <span>or press any key to resume typing</span>
+            </div>
           </div>
         </div>
       )}

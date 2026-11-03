@@ -49,6 +49,18 @@ public class User extends AuditableEntity {
     @Column(name = "total_xp", nullable = false)
     private Long totalXp = 0L;
 
+    @Column(name = "suspended_until")
+    private Instant suspendedUntil;
+
+    @Column(name = "suspension_reason", columnDefinition = "TEXT")
+    private String suspensionReason;
+
+    @Column(name = "deactivated_at")
+    private Instant deactivatedAt;
+
+    @Column(name = "scheduled_deletion_at")
+    private Instant scheduledDeletionAt;
+
     public User() {
         super();
     }
@@ -141,5 +153,37 @@ public class User extends AuditableEntity {
 
     public void setTotalXp(Long totalXp) {
         this.totalXp = totalXp != null ? totalXp : 0L;
+    }
+
+    public Instant getSuspendedUntil() {
+        return suspendedUntil;
+    }
+
+    public void setSuspendedUntil(Instant suspendedUntil) {
+        this.suspendedUntil = suspendedUntil;
+    }
+
+    public String getSuspensionReason() {
+        return suspensionReason;
+    }
+
+    public void setSuspensionReason(String suspensionReason) {
+        this.suspensionReason = suspensionReason;
+    }
+
+    public Instant getDeactivatedAt() {
+        return deactivatedAt;
+    }
+
+    public void setDeactivatedAt(Instant deactivatedAt) {
+        this.deactivatedAt = deactivatedAt;
+    }
+
+    public Instant getScheduledDeletionAt() {
+        return scheduledDeletionAt;
+    }
+
+    public void setScheduledDeletionAt(Instant scheduledDeletionAt) {
+        this.scheduledDeletionAt = scheduledDeletionAt;
     }
 }

@@ -25,6 +25,7 @@ const Achievements = lazy(() => import('./pages/Achievements'));
 const Revision = lazy(() => import('./pages/Revision'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Support = lazy(() => import('./pages/Support'));
 const Admin = lazy(() => import('./pages/Admin'));
 
 // ── Documentation and Marketing Pages ──
@@ -149,6 +150,7 @@ export default function App() {
                     <Route path="achievements"  element={<Achievements />} />
                     <Route path="profile"       element={<Profile />} />
                     <Route path="settings"      element={<Settings />} />
+                    <Route path="support"       element={<Support />} />
                   </Route>
 
                   <Route element={<AdminRoute />}>

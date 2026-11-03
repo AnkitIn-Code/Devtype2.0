@@ -10,10 +10,6 @@ export default function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const closeButton = useRef(null);
 
-  // Administrators only have access to the Admin Console
-  if (user?.role === 'ADMIN') {
-    return <Navigate to="/admin" replace />;
-  }
   useEffect(() => {
     if (!menuOpen) return;
     const previousFocus = document.activeElement;
@@ -32,6 +28,11 @@ export default function AppShell() {
       previousFocus?.focus();
     };
   }, [menuOpen]);
+
+  // Administrators only have access to the Admin Console
+  if (user?.role === 'ADMIN') {
+    return <Navigate to="/admin" replace />;
+  }
   return (
     <div className="app-window">
       <div className="app-body">

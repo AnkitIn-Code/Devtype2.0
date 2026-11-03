@@ -116,6 +116,8 @@ public class PracticeSessionService {
                     ? request.getCustomDifficulty().trim().toUpperCase() : "INTERMEDIATE";
             session = new PracticeSession(user, null, title, lang, diff, Instant.now());
             session.setSourceContentSnapshot(request.getCustomContent());
+        } else if (request.getTemplateId() != null || (request.getTemplateSlug() != null && !request.getTemplateSlug().isBlank())) {
+            throw new ApiException("Practice template not found or is unpublished", HttpStatus.NOT_FOUND);
         } else {
             // Graceful fallback to first published template rather than failing
             template = practiceTemplateRepository.findAll(PageRequest.of(0, 1)).getContent().stream().findFirst().orElse(null);

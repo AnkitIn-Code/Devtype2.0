@@ -17,8 +17,8 @@
  .topbar { padding:10px 12px; gap:8px; flex-wrap:wrap; }
  .topbar-right { gap:8px; margin-left:auto; }
  .topbar-spacer { display:none; }
- .btn-start-practice { padding:8px 10px; }
- .btn-start-practice span { display:none; }
+ .btn-start-practice, .btn-support { padding:8px 10px; }
+ .btn-start-practice span, .btn-support span { display:none; }
  .notif-popover { position:fixed; left:16px; right:16px; top:76px; width:auto; max-width:calc(100vw - 32px); }
 }
 @media(prefers-reduced-motion:reduce) {

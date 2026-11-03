@@ -72,7 +72,7 @@ function CustomLineChartTooltip({ active, payload, label }) {
   return (
     <div className="reports-chart-tooltip">
       <div className="tooltip-header">
-        <span className="tooltip-title">{data.title || 'Practice Session'}</span>
+        <span className="tooltip-title">{data.title || 'Daily Summary'}</span>
         <span className="tooltip-date">{data.fullDate || label}</span>
       </div>
       <div className="tooltip-body">
@@ -94,6 +94,14 @@ function CustomLineChartTooltip({ active, payload, label }) {
           </span>
           <span className="tooltip-metric-value">{data.accuracy}%</span>
         </div>
+        {data.sessionCount != null && (
+          <div className="tooltip-row">
+            <span className="tooltip-metric-label">Completed:</span>
+            <span className="tooltip-metric-value">
+              {data.sessionCount} {data.sessionCount === 1 ? 'drill' : 'drills'}
+            </span>
+          </div>
+        )}
         <div className="tooltip-row">
           <span className="tooltip-metric-label">Language:</span>
           <span className="tooltip-badge">{data.language}</span>
@@ -379,7 +387,7 @@ export default function Reports() {
     const wpms = progressionData.map((d) => d.wpm);
     const min = Math.max(0, Math.floor(Math.min(...wpms) / 10) * 10 - 10);
     const max = Math.ceil(Math.max(...wpms) / 10) * 10 + 10;
-    return [min, max];
+    return [min, Math.max(min + 20, max)];
   }, [progressionData]);
 
   // Most Active Day in Distribution
@@ -695,7 +703,7 @@ export default function Reports() {
                         axisLine={false}
                         unit=" wpm"
                       />
-                      <Tooltip content={<CustomBarTooltip unit="WPM" />} />
+                      <Tooltip content={<CustomBarTooltip unit="WPM" />} cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} />
                       <Bar dataKey="avgWpm" radius={[5, 5, 0, 0]} maxBarSize={38}>
                         {languageProficiency.map((entry, idx) => (
                           <Cell
@@ -779,7 +787,7 @@ export default function Reports() {
                         axisLine={false}
                         allowDecimals={false}
                       />
-                      <Tooltip content={<CustomBarTooltip unit="sessions" />} />
+                      <Tooltip content={<CustomBarTooltip unit="sessions" />} cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} />
                       <Bar
                         dataKey="sessions"
                         fill="#0284C7"

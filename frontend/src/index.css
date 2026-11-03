@@ -11,6 +11,7 @@
 
 /* ---------- Design Tokens ---------- */
 :root {
+  color-scheme: light;
   --font:      -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
 
@@ -97,6 +98,7 @@
 /* ── Apple macOS / iOS Night Liquid Glass Design Tokens ── */
 :root[data-theme='dark'],
 [data-theme='dark'] {
+  color-scheme: dark;
   /* ── Liquid Glass Translucent Dark Palette (Balanced Frosted Glow on Dark Slate) ── */
   --glass-card:         linear-gradient(135deg, rgba(24, 33, 50, 0.72) 0%, rgba(15, 21, 35, 0.62) 100%);
   --glass-card-hover:   linear-gradient(135deg, rgba(32, 44, 68, 0.84) 0%, rgba(20, 28, 48, 0.74) 100%);
@@ -155,6 +157,32 @@
     inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.18);
 }
 
+/* ── Universal Utility & Form Contrast Safeguards ── */
+.text-center {
+  text-align: center !important;
+}
+
+select {
+  font-family: var(--font);
+  color-scheme: light;
+}
+
+select option {
+  background-color: #FFFFFF;
+  color: #0F172A;
+}
+
+[data-theme='dark'] select {
+  color-scheme: dark !important;
+  background-color: #1E293B;
+  color: #F8FAFC;
+}
+
+[data-theme='dark'] select option {
+  background-color: #1E293B !important;
+  color: #F8FAFC !important;
+}
+
 
 /* ================================================================
    RESET & BASE TYPOGRAPHY
@@ -189,9 +217,15 @@ body {
 }
 
 /* Ambient macOS night canvas — deep elegant midnight slate with soft ambient refraction */
+html,
+html[data-theme='dark'],
+:root[data-theme='dark'] {
+  background-color: #090E1A !important;
+}
+
 body[data-theme='dark'],
 [data-theme='dark'] body {
-  background: linear-gradient(180deg, #090E1A 0%, #0F172A 50%, #0A0F1D 100%);
+  background: linear-gradient(180deg, #090E1A 0%, #0F172A 50%, #0A0F1D 100%) !important;
   color: var(--t1);
 }
 
@@ -671,8 +705,9 @@ body[data-theme='dark'],
   border: 1.5px solid #fff;
 }
 
-/* Dark "Start Practice" pill button */
-.btn-start-practice {
+/* Dark "Start Practice" / "Support" pill button */
+.btn-start-practice,
+.btn-support {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -689,7 +724,8 @@ body[data-theme='dark'],
   transition: opacity var(--t-fast), transform var(--t-fast);
 }
 
-.btn-start-practice:hover {
+.btn-start-practice:hover,
+.btn-support:hover {
   opacity: 0.88;
   transform: translateY(-1px);
 }
@@ -1206,13 +1242,15 @@ body[data-theme='dark'],
   color: var(--t3);
 }
 
-[data-theme='dark'] .btn-start-practice {
+[data-theme='dark'] .btn-start-practice,
+[data-theme='dark'] .btn-support {
   background: #2563EB;
   color: #FFFFFF;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
 }
 
-[data-theme='dark'] .btn-start-practice:hover {
+[data-theme='dark'] .btn-start-practice:hover,
+[data-theme='dark'] .btn-support:hover {
   background: #1D4ED8;
   transform: translateY(-1px);
 }
@@ -1378,6 +1416,19 @@ body[data-theme='dark'],
 }
 [data-theme='dark'] .btn-secondary-glass:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+[data-theme='dark'] .btn-secondary {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  color: #F8FAFC;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='dark'] .btn-secondary:hover {
+  background: rgba(51, 65, 85, 0.9);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #FFFFFF;
 }
 
 [data-theme='dark'] .code-block {
@@ -3491,6 +3542,93 @@ body:has(.practice-workspace-root),
   50% { transform: translate(-50%, -4px); }
 }
 
+/* ── Full Editor Focus Overlay with Backdrop Blur & Prompt Pill ── */
+.editor-focus-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 16, 28, 0.72);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 35;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.focus-prompt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+  border: 1.5px solid rgba(59, 130, 246, 0.55);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 24px rgba(37, 99, 235, 0.35);
+  padding: 12px 24px;
+  border-radius: var(--r-pill);
+  color: #FFFFFF;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(0);
+}
+
+.editor-focus-overlay:hover .focus-prompt-pill {
+  transform: scale(1.04);
+  border-color: #3B82F6;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65), 0 0 32px rgba(37, 99, 235, 0.55);
+}
+
+.focus-prompt-pill .prompt-icon {
+  color: #60A5FA;
+  flex-shrink: 0;
+}
+
+.focus-prompt-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 2px;
+}
+
+.focus-prompt-text strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #FFFFFF;
+}
+
+.focus-prompt-text span {
+  font-size: 0.76rem;
+  color: #94A3B8;
+  font-weight: 500;
+}
+
+/* Paused State Backdrop */
+.editor-paused-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 16, 28, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 40;
+  color: #FFFFFF;
+  text-align: center;
+}
+.editor-paused-backdrop h3 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.editor-paused-backdrop p {
+  font-size: 0.92rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 /* Paused overlay */
 .editor-paused-overlay {
   position: absolute;
@@ -4014,6 +4152,19 @@ body:has(.practice-workspace-root),
   background: #FFFFFF;
   border-color: rgba(37, 99, 235, 0.35);
   transform: translateY(-1px);
+}
+
+[data-theme='dark'] .btn-secondary {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  color: #F8FAFC;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='dark'] .btn-secondary:hover {
+  background: rgba(51, 65, 85, 0.9);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #FFFFFF;
 }
 
 .btn-secondary.btn-sm {
@@ -21530,3 +21681,754 @@ body:has(.practice-workspace-root),
   font-weight: 700;
   color: #10B981;
 }
+
+/* ================================================================
+   COMPREHENSIVE NIGHT THEME & LIQUID GLASS DARK MODE HARMONIZATION
+   Resolves light-mode leakage, high-contrast text visibility,
+   and unstyled elements across the entire platform.
+   ================================================================ */
+
+/* 1. Global Recharts Tooltip Cursor Fix */
+.recharts-tooltip-cursor,
+[data-theme='dark'] .recharts-tooltip-cursor {
+  fill: rgba(255, 255, 255, 0.05) !important;
+  stroke: rgba(255, 255, 255, 0.12) !important;
+}
+
+:root:not([data-theme='dark']) .recharts-tooltip-cursor {
+  fill: rgba(0, 0, 0, 0.04) !important;
+  stroke: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 2. Landing & Shell Badges */
+[data-theme='dark'] .landing-footer-badge {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--t2) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* 3. Legal, Privacy, Terms, Architecture & Docs Pages */
+[data-theme='dark'] .docs-sidebar-toc {
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+[data-theme='dark'] .toc-title {
+  color: #94a3b8 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+[data-theme='dark'] .toc-link {
+  color: #cbd5e1 !important;
+}
+[data-theme='dark'] .toc-link:hover {
+  color: #60a5fa !important;
+  background: rgba(59, 130, 246, 0.14) !important;
+}
+
+[data-theme='dark'] .docs-table-wrapper {
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .docs-table th {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+}
+[data-theme='dark'] .docs-table td {
+  color: #cbd5e1 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+[data-theme='dark'] .docs-table td strong {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .docs-sec-card {
+  background: #1e293b !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+[data-theme='dark'] .sec-card-header h4 {
+  color: #f8fafc !important;
+}
+[data-theme='dark'] .docs-sec-card p {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .matrix-table-wrap {
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+[data-theme='dark'] .matrix-table th {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+[data-theme='dark'] .matrix-table td {
+  color: #cbd5e1 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 4. Virtual Keyboard in Night Theme */
+[data-theme='dark'] .virtual-keyboard-card {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  border-top-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5) !important;
+}
+[data-theme='dark'] .vk-key {
+  background: #1e293b !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f8fafc !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.35) !important;
+}
+[data-theme='dark'] .vk-key:hover {
+  background: #27354e !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+[data-theme='dark'] .vk-key .vk-main-lbl {
+  color: #f8fafc !important;
+}
+[data-theme='dark'] .vk-key .vk-shift-lbl {
+  color: #94a3b8 !important;
+}
+[data-theme='dark'] .vk-key.key-active {
+  background: #2563EB !important;
+  border-color: #3B82F6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.5), inset 0 1px 1.5px rgba(255, 255, 255, 0.4) !important;
+}
+[data-theme='dark'] .vk-key.key-pressed {
+  background: #334155 !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .vk-finger {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 5. Practice Blueprint Controls, Modes & Results Modal */
+[data-theme='dark'] .sbc-browse-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--t1) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .sbc-browse-btn:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #FFFFFF !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+[data-theme='dark'] .sbc-benchmark-row {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px dashed rgba(59, 130, 246, 0.35) !important;
+}
+[data-theme='dark'] .sbc-bm-txt {
+  color: var(--t2) !important;
+}
+[data-theme='dark'] .sbc-bm-txt strong {
+  color: var(--t1) !important;
+}
+
+[data-theme='dark'] .sbc-mode-segments {
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme='dark'] .sbc-mode-btn.active,
+[data-theme='dark'] .sbc-mode-btn.active-free {
+  background: rgba(217, 119, 6, 0.18) !important;
+  color: #FBBF24 !important;
+  border: 1px solid rgba(217, 119, 6, 0.4) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .sbc-mode-btn.active-strict {
+  background: rgba(220, 38, 38, 0.18) !important;
+  color: #F87171 !important;
+  border: 1px solid rgba(220, 38, 38, 0.4) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .sbc-mode-btn.active-timed {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #60A5FA !important;
+  border: 1px solid rgba(37, 99, 235, 0.4) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .sbc-mode-sub {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--t2) !important;
+}
+
+/* Practice Telemetry Streak & Syntax Friction in Night Mode */
+[data-theme='dark'] .pt-streak-box {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: none !important;
+}
+
+[data-theme='dark'] .pt-f-chip {
+  background: rgba(15, 23, 42, 0.75) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: none !important;
+}
+[data-theme='dark'] .pt-f-chip.f-active {
+  background: rgba(225, 29, 72, 0.18) !important;
+  border-color: rgba(225, 29, 72, 0.4) !important;
+}
+
+/* Practice Action Pills (Sound, Reset, Exit) in Night Mode */
+[data-theme='dark'] .pt-action-pill {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--t2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: none !important;
+}
+[data-theme='dark'] .pt-action-pill:hover {
+  background: #1e293b !important;
+  color: var(--t1) !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+[data-theme='dark'] .pt-action-pill.active {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #60a5fa !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+/* Badges high-contrast night mode support */
+[data-theme='dark'] .badge-indigo {
+  background: rgba(99, 102, 241, 0.2) !important;
+  color: #A5B4FC !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+[data-theme='dark'] .badge-teal,
+[data-theme='dark'] .badge-cyan {
+  background: rgba(14, 165, 233, 0.2) !important;
+  color: #38BDF8 !important;
+  border-color: rgba(14, 165, 233, 0.4) !important;
+}
+[data-theme='dark'] .badge-amber {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #FCD34D !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+[data-theme='dark'] .badge-emerald {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #6EE7B7 !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+}
+[data-theme='dark'] .badge-rose {
+  background: rgba(244, 63, 94, 0.2) !important;
+  color: #FDA4AF !important;
+  border-color: rgba(244, 63, 94, 0.4) !important;
+}
+
+/* Practice Fullscreen Clean Night Mode: Hide stray footer wrappers */
+.app-window:has(.practice-workspace-root) .workspace-footer {
+  display: none !important;
+}
+
+[data-theme='dark'] .results-trophy-wrap {
+  background: #1e293b !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+[data-theme='dark'] .results-metric-card {
+  background: #1e293b !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 6. Templates Library & Custom Studio Controls */
+[data-theme='dark'] .tpl-cat-tab:hover {
+  background: #1e293b !important;
+  color: var(--t1) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+[data-theme='dark'] .tpl-cat-tab.active {
+  background: #1e293b !important;
+  color: #60a5fa !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.08) !important;
+}
+[data-theme='dark'] .tpl-cat-tab.active .tpl-cat-icon {
+  color: #60a5fa !important;
+}
+[data-theme='dark'] .tpl-cat-tab.active .tpl-cat-badge {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #93c5fd !important;
+}
+[data-theme='dark'] .tpl-cat-badge {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--t2) !important;
+}
+[data-theme='dark'] .tpl-search-wrapper:focus-within {
+  background: #0f172a !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+[data-theme='dark'] .tpl-select option {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+}
+[data-theme='dark'] .tpl-view-btn.active {
+  background: #1e293b !important;
+  color: #60a5fa !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .tpl-lang-chip:hover {
+  background: #1e293b !important;
+  color: var(--t1) !important;
+}
+[data-theme='dark'] .tc-btn-view:hover {
+  background: #1e293b !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+[data-theme='dark'] .ctm-input:focus,
+[data-theme='dark'] .ctm-select:focus {
+  background: #0f172a !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+[data-theme='dark'] .ctm-diff-btn.active {
+  background: #1e293b !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 7. Public Navigation Header & Sliding Shelf Drawer (Night Mode Protection) */
+[data-theme='dark'] .public-nav-header {
+  background: rgba(13, 20, 36, 0.92) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme='dark'] .public-nav-slider-wrapper {
+  background: rgba(15, 23, 42, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme='dark'] .public-nav-slide-arrow {
+  background: #1e293b !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+[data-theme='dark'] .public-nav-slide-arrow:hover {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .public-nav-pill {
+  color: #94a3b8 !important;
+}
+[data-theme='dark'] .public-nav-pill:hover {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+}
+[data-theme='dark'] .public-nav-pill.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .public-nav-shelf-drawer {
+  background: rgba(11, 17, 32, 0.98) !important;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.75) !important;
+}
+
+[data-theme='dark'] .shelf-badge {
+  background: rgba(37, 99, 235, 0.18) !important;
+  border: 1px solid rgba(37, 99, 235, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+[data-theme='dark'] .shelf-title {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .shelf-subtitle {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .shelf-arrow-controls {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme='dark'] .shelf-nav-btn {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+[data-theme='dark'] .shelf-nav-btn:hover {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .shelf-close-btn {
+  background: #1e293b !important;
+  color: #cbd5e1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+[data-theme='dark'] .shelf-close-btn:hover {
+  background: rgba(225, 29, 72, 0.2) !important;
+  color: #fb7185 !important;
+  border-color: rgba(225, 29, 72, 0.4) !important;
+}
+
+[data-theme='dark'] .shelf-card {
+  background: rgba(22, 33, 54, 0.88) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+[data-theme='dark'] .shelf-card:hover {
+  background: rgba(30, 44, 72, 0.95) !important;
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+[data-theme='dark'] .shelf-card.card-active {
+  background: rgba(37, 99, 235, 0.2) !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.3) !important;
+}
+
+[data-theme='dark'] .shelf-card-badge {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .shelf-card-title {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .shelf-card-desc {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .shelf-card-action {
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme='dark'] .shelf-open-link {
+  color: #60a5fa !important;
+}
+
+[data-theme='dark'] .shelf-active-status {
+  color: #34d399 !important;
+}
+
+/* 8. Documentation, Legal, Roadmap & Architecture Dark Surface Palette */
+[data-theme='dark'] .docs-page-root {
+  background: transparent !important;
+}
+
+[data-theme='dark'] .docs-hero-badge {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='dark'] .docs-hero-title {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .docs-hero-sub {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .docs-callout-banner {
+  background: rgba(5, 150, 105, 0.12) !important;
+  border: 1.5px solid rgba(5, 150, 105, 0.35) !important;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] .docs-callout-banner.alert-warning-theme {
+  background: rgba(225, 29, 72, 0.12) !important;
+  border-color: rgba(225, 29, 72, 0.35) !important;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] .docs-callout-content h3 {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .docs-callout-content p {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .docs-metrics-banner {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] .metric-num {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .metric-lbl {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .metric-sep {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme='dark'] .docs-section h2 {
+  color: #f8fafc !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme='dark'] .docs-section p {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .docs-bullet-list,
+[data-theme='dark'] .docs-num-list {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .docs-arch-diagram {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] .client-layer {
+  background: rgba(37, 99, 235, 0.1) !important;
+  border-color: rgba(37, 99, 235, 0.28) !important;
+}
+
+[data-theme='dark'] .server-layer {
+  background: rgba(124, 58, 237, 0.1) !important;
+  border-color: rgba(124, 58, 237, 0.28) !important;
+}
+
+[data-theme='dark'] .arch-chip {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme='dark'] .arch-layer-title {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .arch-arrow {
+  color: #60a5fa !important;
+}
+
+[data-theme='dark'] .arch-connector-v {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .docs-contact-box {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-theme='dark'] .docs-contact-row {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] .docs-cta-card {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9)) !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme='dark'] .docs-cta-card h3 {
+  color: #f8fafc !important;
+}
+
+[data-theme='dark'] .docs-cta-card p {
+  color: #94a3b8 !important;
+}
+
+/* ================================================================
+   SUPPORT & HELP DESK PORTAL POLISH
+   ================================================================ */
+.support-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.support-segmented-controls {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  background: var(--bg-card-sub, rgba(255, 255, 255, 0.05));
+  border: 1.5px solid var(--glass-border-sub, rgba(255, 255, 255, 0.1));
+  border-radius: var(--r12);
+  gap: 4px;
+}
+
+[data-theme='dark'] .support-segmented-controls {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.support-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--r8);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--t2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.support-tab-btn:hover {
+  color: var(--t1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.support-tab-btn.active {
+  background: var(--primary, #2563EB);
+  color: #FFFFFF !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.support-tab-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #FFFFFF;
+  margin-left: 4px;
+}
+
+.support-tab-btn:not(.active) .support-tab-badge {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
+}
+
+.support-select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--r8);
+  background: var(--bg-card-sub, rgba(255, 255, 255, 0.04));
+  border: 1.5px solid var(--glass-border-sub, rgba(255, 255, 255, 0.12));
+  color: var(--t1);
+  font-size: 0.9rem;
+  font-family: var(--font);
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--t-fast);
+}
+
+.support-select:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.support-select option {
+  background-color: #FFFFFF;
+  color: #0F172A;
+  padding: 8px 12px;
+}
+
+[data-theme='dark'] .support-select {
+  background-color: #1E293B;
+  color: #F8FAFC;
+  border-color: rgba(255, 255, 255, 0.16);
+  color-scheme: dark;
+}
+
+[data-theme='dark'] .support-select option {
+  background-color: #1E293B !important;
+  color: #F8FAFC !important;
+}
+
+/* ── Universal Vertical Spacing Utilities ── */
+.space-y-2 > * + * { margin-top: 0.5rem; }
+.space-y-3 > * + * { margin-top: 0.75rem; }
+.space-y-4 > * + * { margin-top: 1rem; }
+.space-y-5 > * + * { margin-top: 1.25rem; }
+.space-y-6 > * + * { margin-top: 1.5rem; }
+.space-y-8 > * + * { margin-top: 2rem; }
+
+/* ── Support Ticket Form Spacious Styling ── */
+.support-new-ticket-wrapper {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.support-ticket-form {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.support-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.support-form-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--t1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.support-form-input {
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: var(--r10);
+  background: var(--bg-card-sub, rgba(255, 255, 255, 0.04));
+  border: 1.5px solid var(--glass-border-sub, rgba(255, 255, 255, 0.12));
+  color: var(--t1);
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  transition: all var(--t-fast);
+}
+
+.support-form-input:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.support-form-textarea {
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: var(--r10);
+  background: var(--bg-card-sub, rgba(255, 255, 255, 0.04));
+  border: 1.5px solid var(--glass-border-sub, rgba(255, 255, 255, 0.12));
+  color: var(--t1);
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  min-height: 180px;
+  line-height: 1.65;
+  transition: all var(--t-fast);
+}
+
+.support-form-textarea:focus {
+  border-color: #3B82F6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.support-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding-top: 24px;
+  margin-top: 10px;
+  border-top: 1px solid var(--glass-border-sub, rgba(255, 255, 255, 0.08));
+}
+
+

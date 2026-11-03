@@ -2,10 +2,12 @@ package com.devtype.srs.controller;
 
 import com.devtype.auth.security.SecurityUtils;
 import com.devtype.common.dto.ApiResponse;
+import com.devtype.common.exception.ApiException;
 import com.devtype.srs.dto.SrsCardResponse;
 import com.devtype.srs.dto.SubmitSrsReviewRequest;
 import com.devtype.srs.service.SrsService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,6 +32,10 @@ public class SrsController {
 
     @GetMapping("/due/{userId}")
     public ResponseEntity<List<SrsCardResponse>> getDueCardsByUserId(@PathVariable Long userId) {
+        Long authenticatedUserId = SecurityUtils.getRequiredCurrentUserId();
+        if (!authenticatedUserId.equals(userId) && !SecurityUtils.hasRole("ROLE_ADMIN")) {
+            throw new ApiException("You are not authorized to view this user's SRS cards", HttpStatus.FORBIDDEN);
+        }
         List<SrsCardResponse> due = srsService.getDueCards(userId);
         return ResponseEntity.ok(due);
     }
@@ -43,6 +49,10 @@ public class SrsController {
 
     @GetMapping("/deck/{userId}")
     public ResponseEntity<List<SrsCardResponse>> getDeckByUserId(@PathVariable Long userId) {
+        Long authenticatedUserId = SecurityUtils.getRequiredCurrentUserId();
+        if (!authenticatedUserId.equals(userId) && !SecurityUtils.hasRole("ROLE_ADMIN")) {
+            throw new ApiException("You are not authorized to view this user's SRS cards", HttpStatus.FORBIDDEN);
+        }
         List<SrsCardResponse> deck = srsService.getDeck(userId);
         return ResponseEntity.ok(deck);
     }

@@ -32,7 +32,17 @@ public class AdminAuditLogService {
     public AdminAuditLog recordLog(Long adminUserId, String actionType, String targetType, Long targetId,
                                   String previousState, String newState, String reason,
                                   HttpServletRequest request) {
-        User adminUser = userRepository.findById(adminUserId).orElse(null);
+        User adminUser = null;
+        if (adminUserId != null) {
+            adminUser = userRepository.findById(adminUserId).orElse(null);
+        }
+        if (adminUser == null) {
+            adminUser = userRepository.findFirstByRole(com.devtype.user.UserRole.ADMIN).orElse(null);
+        }
+        if (adminUser == null) {
+            return null;
+        }
+
         String ip = extractClientIp(request);
         String userAgent = extractUserAgent(request);
 

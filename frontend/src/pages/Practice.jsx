@@ -701,7 +701,6 @@ export default function Practice() {
 
       if (indentSpaces > 0) {
         setTotalKeystrokes((prev) => prev + indentSpaces);
-        setCorrectChars((prev) => prev + indentSpaces);
       }
 
       setCursorIndex(finalIndex);
@@ -770,7 +769,6 @@ export default function Practice() {
 
       setTypedHistory((prev) => prev.slice(0, newCursor));
       setCursorIndex(newCursor);
-      setCorrectChars((prev) => Math.max(0, prev - countRemoved));
       setTotalKeystrokes((prev) => Math.max(0, prev - countRemoved));
     } else {
       setCursorIndex((prev) => Math.max(0, prev - 1));
@@ -857,7 +855,6 @@ export default function Practice() {
 
     setStreak((prev) => prev + 1);
     setTotalKeystrokes((prev) => prev + countAdded);
-    setCorrectChars((prev) => prev + countAdded);
 
     setTypedHistory((prev) => {
       const next = [...prev];

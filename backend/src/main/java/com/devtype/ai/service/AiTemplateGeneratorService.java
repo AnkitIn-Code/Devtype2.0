@@ -189,7 +189,8 @@ public class AiTemplateGeneratorService {
                 2. Do NOT output markdown code block markers (```json or ```) outside the JSON.
                 3. The "code" property MUST contain pure source code. Do NOT put markdown code fences (```) INSIDE the "code" field.
                 4. Use standard 4-space (or 2-space) indentation. Keep formatting clean, aesthetic, and readable for typists.
-                5. Make the code self-contained with necessary imports/includes where applicable.
+                5. Output ONLY the function (or class method) implementation. Absolutely DO NOT include any header files, import statements, package declarations, namespaces, or library includes (e.g. no #include, no import, no from ... import, no package, no using namespace, no require).
+                6. Absolutely NO comments of any kind in the code (no single-line // or # comments, no block /* */ comments, no docstrings). Keep the code 100% pure typing code without explanatory or header comments.
 
                 JSON Output Schema:
                 {
@@ -217,7 +218,8 @@ public class AiTemplateGeneratorService {
             sb.append("Custom Exercise Details: ").append(request.customInstructions().trim()).append("\n");
         }
 
-        sb.append("\nGenerate the complete JSON object now.");
+        sb.append("\nIMPORTANT: Output ONLY the function itself. Do NOT include any imports, headers (#include), packages, or comments of any kind.\n");
+        sb.append("Generate the complete JSON object now.");
         return sb.toString();
     }
 
@@ -326,7 +328,83 @@ public class AiTemplateGeneratorService {
         if (code.endsWith("```")) {
             code = code.substring(0, code.length() - 3);
         }
-        return code.trim();
+        code = code.trim();
+
+        // 1. Remove block comments /* ... */
+        code = code.replaceAll("/\\*[\\s\\S]*?\\*/", "");
+
+        // 2. Remove triple-quote docstrings
+        code = code.replaceAll("\"\"\"[\\s\\S]*?\"\"\"", "");
+        code = code.replaceAll("'''[\\s\\S]*?'''", "");
+
+        // 3. Process line-by-line to strip library includes, package declarations, and comments
+        StringBuilder cleaned = new StringBuilder();
+        String[] lines = code.split("\\r?\\n");
+        boolean inGoImportBlock = false;
+
+        for (String rawLine : lines) {
+            String trimmed = rawLine.trim();
+
+            // Multi-line Go/Rust import blocks like: import ( ... )
+            if (trimmed.startsWith("import (") || trimmed.equals("import (")) {
+                inGoImportBlock = true;
+                continue;
+            }
+            if (inGoImportBlock) {
+                if (trimmed.equals(")") || trimmed.startsWith(")")) {
+                    inGoImportBlock = false;
+                }
+                continue;
+            }
+
+            // Strip library includes, headers, packages, namespaces
+            if (trimmed.startsWith("#include") ||
+                trimmed.startsWith("#import") ||
+                trimmed.startsWith("#pragma") ||
+                trimmed.startsWith("import ") ||
+                (trimmed.startsWith("from ") && trimmed.contains("import")) ||
+                trimmed.startsWith("package ") ||
+                trimmed.startsWith("using namespace ") ||
+                (trimmed.startsWith("using ") && trimmed.endsWith(";")) ||
+                trimmed.startsWith("extern crate ") ||
+                (trimmed.startsWith("const ") && trimmed.contains("= require(")) ||
+                (trimmed.startsWith("let ") && trimmed.contains("= require(")) ||
+                (trimmed.startsWith("var ") && trimmed.contains("= require("))) {
+                continue;
+            }
+
+            // Strip full-line comments
+            if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*") || trimmed.startsWith("#")) {
+                continue;
+            }
+
+            // Strip inline comments if they appear after code and not inside a URL or quote
+            String line = rawLine;
+            if (line.contains("//") && !line.contains("://")) {
+                int idx = line.indexOf("//");
+                int quoteCount = 0;
+                for (int i = 0; i < idx; i++) {
+                    if (line.charAt(i) == '"' || line.charAt(i) == '\'') {
+                        quoteCount++;
+                    }
+                }
+                if (quoteCount % 2 == 0) {
+                    line = line.substring(0, idx);
+                }
+            }
+
+            // Skip leading empty lines before code starts
+            if (line.trim().isEmpty()) {
+                if (cleaned.length() > 0) {
+                    cleaned.append("\n");
+                }
+                continue;
+            }
+
+            cleaned.append(line.stripTrailing()).append("\n");
+        }
+
+        return cleaned.toString().trim();
     }
 
     private String slugify(String text) {

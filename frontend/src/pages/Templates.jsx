@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { PREDEFINED_BLUEPRINTS } from '../data/predefinedBlueprints';
 import { templateService } from '../services/templateService';
+import { snippetService } from '../services/snippetService';
 
 const TRACKS = [
   { id: 'all', label: 'All Tracks' },
@@ -20,11 +21,58 @@ const TRACKS = [
   { id: 'cp', label: 'Competitive Algorithms' },
 ];
 
+/**
+ * Expands blueprints so that every supported language implementation
+ * receives its own dedicated card with language badge, code, and direct drill action.
+ */
+function expandBlueprintsByLanguage(blueprintsList) {
+  const result = [];
+  const seen = new Set();
+  (blueprintsList || []).forEach((bp) => {
+    const langs = bp.languages && bp.languages.length > 0 ? bp.languages : Object.keys(bp.codeByLanguage || {});
+    if (langs.length <= 1) {
+      const lang = langs[0] || bp.language || 'C++';
+      const slug = bp.slug || bp.key || `bp-${bp.id}`;
+      result.push({
+        ...bp,
+        key: slug,
+        slug,
+        languages: [lang],
+        language: lang,
+        code: bp.codeByLanguage?.[lang] || bp.codeSnippet || bp.code || '',
+        codeSnippet: bp.codeByLanguage?.[lang] || bp.codeSnippet || bp.code || '',
+      });
+    } else {
+      langs.forEach((lang) => {
+        const langCode = bp.codeByLanguage?.[lang] || bp.codeSnippet || bp.code || '';
+        if (!langCode) return;
+        const slug = bp.slugs?.[lang] || `${bp.key || bp.slug}-${lang.toLowerCase().replace('+', 'p')}`;
+        if (!seen.has(slug)) {
+          seen.add(slug);
+          result.push({
+            ...bp,
+            key: slug,
+            slug,
+            title: `${bp.title} (${lang})`,
+            languages: [lang],
+            language: lang,
+            code: langCode,
+            codeSnippet: langCode,
+            codeByLanguage: { [lang]: langCode },
+            content: langCode,
+          });
+        }
+      });
+    }
+  });
+  return result;
+}
+
 export default function Templates() {
   const navigate = useNavigate();
 
   // Active Blueprints Catalog
-  const [blueprints, setBlueprints] = useState(PREDEFINED_BLUEPRINTS);
+  const [blueprints, setBlueprints] = useState(() => expandBlueprintsByLanguage(PREDEFINED_BLUEPRINTS));
   const [isLoading, setIsLoading] = useState(false);
 
   // Search & Filter State
@@ -43,26 +91,55 @@ export default function Templates() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
 
-  // Load server templates if available, merge with predefined blueprints
+  // Load server database templates if available, staying in 100% sync with Admin Studio
   useEffect(() => {
     let isMounted = true;
     async function loadCatalog() {
       setIsLoading(true);
       try {
-        const result = await templateService.getTemplates({ size: 100 });
-        if (isMounted && result?.items && result.items.length > 0) {
-          // Predefined catalog is the primary foundation
-          setBlueprints(PREDEFINED_BLUEPRINTS);
+        const dbSnippets = await snippetService.getAllSnippets();
+        if (isMounted && Array.isArray(dbSnippets) && dbSnippets.length > 0) {
+          const mapped = dbSnippets.map((s) => {
+            const lang = s.language || 'C++';
+            const slug = s.slug || `snippet-${s.id}`;
+            const diff = s.difficulty ? (s.difficulty.charAt(0).toUpperCase() + s.difficulty.slice(1).toLowerCase()) : 'Intermediate';
+            return {
+              key: slug,
+              id: slug,
+              numericId: s.id,
+              slug,
+              title: s.title,
+              category: s.category || 'Algorithms & DSA',
+              difficulty: diff,
+              description: s.description || `${s.category} drill in ${lang}`,
+              languages: [lang],
+              language: lang,
+              codeByLanguage: { [lang]: s.code },
+              codeSnippet: s.code,
+              code: s.code,
+              content: s.code,
+              track: s.subCategory || 'foundations',
+              tags: Array.isArray(s.tags) ? s.tags : (s.tags ? s.tags.split(',') : []),
+              timeComplexity: s.timeComplexity || '',
+              spaceComplexity: s.spaceComplexity || '',
+            };
+          });
+          setBlueprints(mapped);
+        } else if (isMounted) {
+          setBlueprints(expandBlueprintsByLanguage(PREDEFINED_BLUEPRINTS));
         }
       } catch (err) {
         console.warn('Using local authoritative blueprints catalog:', err.message);
+        if (isMounted) setBlueprints(expandBlueprintsByLanguage(PREDEFINED_BLUEPRINTS));
       } finally {
         if (isMounted) setIsLoading(false);
       }
     }
     loadCatalog();
+    window.addEventListener('devtype_templates_updated', loadCatalog);
     return () => {
       isMounted = false;
+      window.removeEventListener('devtype_templates_updated', loadCatalog);
     };
   }, []);
 
@@ -204,6 +281,57 @@ export default function Templates() {
     launchPracticeForBlueprint(selectedBlueprint, chosenLang);
   };
 
+  // Dynamic metrics computed from active blueprints - 100% accounted for
+  const dynamicStats = useMemo(() => {
+    const total = blueprints.length;
+    let algo = 0;
+    let frameworks = 0;
+    let systems = 0;
+    let sql = 0;
+
+    blueprints.forEach((b) => {
+      const c = (b.category || '').toLowerCase();
+      const track = (b.track || '').toLowerCase();
+      if (
+        c.includes('framework') ||
+        c.includes('react') ||
+        c.includes('angular') ||
+        c.includes('modern') ||
+        c.includes('web')
+      ) {
+        frameworks++;
+      } else if (
+        c.includes('concur') ||
+        c.includes('system') ||
+        c.includes('c++ foundations') ||
+        c.includes('stl') ||
+        c.includes('rust') ||
+        c.includes('go') ||
+        c.includes('thread') ||
+        c.includes('java collections') ||
+        c.includes('java foundations') ||
+        c.includes('jcf') ||
+        track === 'foundations' ||
+        track === 'stl' ||
+        track === 'java-foundations' ||
+        track === 'jcf'
+      ) {
+        systems++;
+      } else if (
+        c.includes('sql') ||
+        c.includes('pipeline') ||
+        c.includes('analytic') ||
+        c.includes('query')
+      ) {
+        sql++;
+      } else {
+        algo++;
+      }
+    });
+
+    return { total, algo, frameworks, systems, sql };
+  }, [blueprints]);
+
   return (
     <div className="dash space-y-6">
       {/* ── Welcome Header (Matches Dashboard Design Exactly) ── */}
@@ -224,17 +352,17 @@ export default function Templates() {
         {/* Ice Glass Date & Catalog Widget */}
         <div className="welcome-widget">
           <div className="welcome-widget-top">
-            <span>50+ Blueprints</span>
+            <span>{dynamicStats.total} Blueprints</span>
             <Code2 size={16} className="welcome-cal-icon" />
           </div>
           <div className="welcome-widget-sub">
             <Globe size={14} fill="currentColor" strokeWidth={0} />
-            <span>9 Language Stacks</span>
+            <span>{languagesList.filter(l => l !== 'All').length || 9} Language Stacks</span>
           </div>
         </div>
       </div>
 
-      {/* ── 4 Stat Cards Grid (Matches Dashboard Exactly) ── */}
+      {/* ── 4 Stat Cards Grid (Dynamic Accurately Matching Database) ── */}
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-card-content">
@@ -246,7 +374,7 @@ export default function Templates() {
                 <span className="badge badge-teal">Core</span>
               </div>
             </div>
-            <div className="stat-num">24</div>
+            <div className="stat-num">{dynamicStats.algo}</div>
             <div className="stat-label">Algorithms &amp; DSA</div>
             <div className="stat-sub">
               <span>Searches, Sorts, Dynamic Prog.</span>
@@ -264,7 +392,7 @@ export default function Templates() {
                 <span className="badge badge-indigo">Reactive</span>
               </div>
             </div>
-            <div className="stat-num">12</div>
+            <div className="stat-num">{dynamicStats.frameworks}</div>
             <div className="stat-label">Frameworks &amp; Modern</div>
             <div className="stat-sub">
               <span>React Hooks, Angular Signals</span>
@@ -282,7 +410,7 @@ export default function Templates() {
                 <span className="badge badge-amber">Systems</span>
               </div>
             </div>
-            <div className="stat-num">8</div>
+            <div className="stat-num">{dynamicStats.systems}</div>
             <div className="stat-label">Concurrency &amp; Systems</div>
             <div className="stat-sub">
               <span>Go Pools, Rust Channels, Mutexes</span>
@@ -300,7 +428,7 @@ export default function Templates() {
                 <span className="badge badge-teal">Analytics</span>
               </div>
             </div>
-            <div className="stat-num">6</div>
+            <div className="stat-num">{dynamicStats.sql}</div>
             <div className="stat-label">SQL &amp; Data Pipeline</div>
             <div className="stat-sub">
               <span>Window Functions &amp; CTEs</span>
@@ -470,47 +598,56 @@ export default function Templates() {
             return (
               <div key={item.key} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 20 }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
                     <span className="badge badge-gray" style={{ fontSize: '0.7rem' }}>
                       {item.category}
                     </span>
-                    <span className={`badge ${diffClass}`}>
-                      {item.difficulty}
-                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span className="badge badge-indigo" style={{ fontSize: '0.7rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                        {item.language || item.languages?.[0] || 'Code'}
+                      </span>
+                      <span className={`badge ${diffClass}`}>
+                        {item.difficulty}
+                      </span>
+                    </div>
                   </div>
 
                   <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--t1)', margin: '0 0 8px 0', letterSpacing: '-0.01em' }}>
                     {item.title}
                   </h3>
 
-                  <p style={{ fontSize: '0.82rem', color: 'var(--t2)', lineHeight: 1.5, margin: '0 0 16px 0' }}>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--t2)', lineHeight: 1.5, margin: '0 0 14px 0' }}>
                     {item.description}
                   </p>
 
+                  {/* Code snippet preview terminal */}
+                  {(item.code || item.codeSnippet) && (
+                    <div
+                      style={{
+                        marginBottom: 14,
+                        padding: '8px 12px',
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        border: '1px solid var(--glass-border-sub)',
+                        borderRadius: 8,
+                        fontSize: '0.75rem',
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--t2)',
+                        overflow: 'hidden',
+                        maxHeight: 74,
+                      }}
+                    >
+                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                        {(item.code || item.codeSnippet).split('\n').slice(0, 3).join('\n')}
+                      </pre>
+                    </div>
+                  )}
+
                   {item.timeComplexity && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--brand)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--brand)' }}>
                       <Zap size={12} />
                       <span>{item.timeComplexity}</span>
                     </div>
                   )}
-
-                  {/* Language Badges */}
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--t3)', textTransform: 'uppercase', marginBottom: 6 }}>
-                      Available Stacks:
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {(item.languages || []).map((lang) => (
-                        <span
-                          key={lang}
-                          className="badge badge-teal"
-                          style={{ fontSize: '0.7rem', padding: '3px 8px', fontFamily: 'var(--font-mono)' }}
-                        >
-                          {lang}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
                 </div>
 
                 {/* Card Actions */}
@@ -525,7 +662,13 @@ export default function Templates() {
                   </button>
 
                   <button
-                    onClick={() => handleOpenPracticeModal(item)}
+                    onClick={() => {
+                      if (item.languages && item.languages.length > 1) {
+                        handleOpenPracticeModal(item);
+                      } else {
+                        launchPracticeForBlueprint(item, item.language || item.languages?.[0] || 'C++');
+                      }
+                    }}
                     className="btn btn-primary btn-sm"
                     style={{ flex: 1, justifyContent: 'center' }}
                   >
@@ -665,12 +808,12 @@ export default function Templates() {
                       }}
                     >
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 6, flexWrap: 'wrap' }}>
                           <span className={`badge ${diffClass}`}>
                             {item.difficulty}
                           </span>
-                          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--brand)', fontWeight: 700 }}>
-                            {item.languages?.length || 1} Stacks
+                          <span className="badge badge-indigo" style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                            {item.language || item.languages?.[0] || 'Code'}
                           </span>
                         </div>
 
@@ -700,7 +843,13 @@ export default function Templates() {
                           <span>Theory</span>
                         </button>
                         <button
-                          onClick={() => handleOpenPracticeModal(item)}
+                          onClick={() => {
+                            if (item.languages && item.languages.length > 1) {
+                              handleOpenPracticeModal(item);
+                            } else {
+                              launchPracticeForBlueprint(item, item.language || item.languages?.[0] || 'C++');
+                            }
+                          }}
                           className="btn btn-primary btn-sm"
                           style={{ flex: 1, justifyContent: 'center', height: 30 }}
                         >

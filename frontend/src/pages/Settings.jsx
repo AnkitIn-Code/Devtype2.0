@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Globe, User, Mail, ShieldCheck, Sun, Moon,
-  Monitor, Trash2, AlertTriangle, X, Loader2
+  Monitor, Trash2, AlertTriangle, X, Loader2, HelpCircle, LifeBuoy
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -113,7 +113,46 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* ── 4. Danger Zone: Delete Account ── */}
+        {/* ── 4. Help & Support Center ── */}
+        <section className="settings-group-block" aria-labelledby="support-heading">
+          <div className="settings-group-header">
+            <h2 id="support-heading" className="settings-group-title">Help & Support</h2>
+            <p className="settings-group-sub">Browse platform FAQs, review fair-play rules, or submit support tickets.</p>
+          </div>
+          <div className="card settings-box-card" style={{ padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  width: '42px', height: '42px', borderRadius: '10px',
+                  background: 'rgba(37, 99, 235, 0.15)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', color: '#3B82F6'
+                }}>
+                  <LifeBuoy size={22} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, color: 'var(--t1)' }}>
+                    DevType Support Desk & FAQs
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--t3)' }}>
+                    Need help with platform bugs, ranking queries, or account support? Browse frequently asked questions or submit a ticket directly to DevType administrators.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                id="btn-settings-open-support"
+                onClick={() => navigate('/support')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <HelpCircle size={16} />
+                <span>Open Support Desk</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 5. Danger Zone: Delete Account ── */}
         <section className="settings-group-block" aria-labelledby="danger-zone-heading">
           <div className="settings-group-header">
             <h2 id="danger-zone-heading" className="settings-group-title text-danger">Danger Zone</h2>

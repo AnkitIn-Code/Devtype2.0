@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Trophy, Swords, Bug, Users, Key,
-  AlertCircle, RefreshCw, ChevronRight, Zap, Shield, ArrowRight
+  AlertCircle, RefreshCw, ChevronRight, Zap, Shield, ShieldCheck, ArrowRight
 } from 'lucide-react';
 import { multiplayerService, connectMultiplayer } from '../services/multiplayerService';
 import { leaderboardService } from '../services/leaderboardService';
@@ -92,6 +92,71 @@ export default function Multiplayer() {
     }
     setStatus('idle');
   }, []);
+
+  // Safe WebSocket connection management (only opened when match is entered!)
+  const establishWebSocket = useCallback(() => {
+    if (connectionRef.current) return connectionRef.current;
+
+    const conn = connectMultiplayer({
+      onState: (updatedRoom) => {
+        if (!updatedRoom) {
+          latestRoomRef.current = null;
+          setRoom(null);
+          sessionStorage.removeItem('devtype_active_room_id');
+          sessionStorage.removeItem('devtype_active_room_mode');
+          return;
+        }
+
+        latestRoomRef.current = updatedRoom;
+        setRoom(updatedRoom);
+
+        if (['SEARCHING', 'READY', 'COUNTDOWN', 'RACING'].includes(updatedRoom.state)) {
+          sessionStorage.setItem('devtype_active_room_id', updatedRoom.id);
+          sessionStorage.setItem('devtype_active_room_mode', updatedRoom.mode);
+        } else if (updatedRoom.state === 'COMPLETED' || updatedRoom.state === 'CANCELLED') {
+          sessionStorage.removeItem('devtype_active_room_id');
+          sessionStorage.removeItem('devtype_active_room_mode');
+        }
+
+        // When a ranked race finishes, show results modal
+        if (updatedRoom.state === 'COMPLETED') {
+          const isRankedMatch = updatedRoom.mode === 'classic' || updatedRoom.mode === 'duel';
+          if (isRankedMatch) {
+            setIsResultsModalOpen(true);
+            // Refresh ELO
+            leaderboardService.getMyRank().then((data) => {
+              if (data) {
+                setRank(data);
+                syncUserEloFromDatabase(user?.id, data);
+                window.dispatchEvent(new Event(ELO_EVENT_NAME));
+                try {
+                  localStorage.setItem('devtype_last_rating_update', Date.now().toString());
+                } catch { /* storage fallback */ }
+              }
+            });
+            // Refresh history
+            loadHistory(0, true);
+          }
+        }
+      },
+      onChat: (newChat) => {
+        if (!newChat) return;
+        setRoom((prev) => {
+          if (!prev) return prev;
+          const currentChats = prev.chat || [];
+          if (currentChats.some((c) => c.requestId === newChat.requestId || (c.id && c.id === newChat.id))) return prev;
+          const updated = { ...prev, chat: [...currentChats, newChat] };
+          latestRoomRef.current = updated;
+          return updated;
+        });
+      },
+      onStatus: (st) => setStatus(st),
+      onError: (err) => setError(err),
+    });
+
+    connectionRef.current = conn;
+    return conn;
+  }, [user?.id, loadHistory]);
 
   // Initial Data Load (Templates, User Rank, History Page 0)
   // NOTICE: No WebSocket is opened here!
@@ -198,70 +263,7 @@ export default function Multiplayer() {
     }
   };
 
-  // Safe WebSocket connection management (only opened when match is entered!)
-  const establishWebSocket = () => {
-    if (connectionRef.current) return connectionRef.current;
 
-    const conn = connectMultiplayer({
-      onState: (updatedRoom) => {
-        if (!updatedRoom) {
-          latestRoomRef.current = null;
-          setRoom(null);
-          sessionStorage.removeItem('devtype_active_room_id');
-          sessionStorage.removeItem('devtype_active_room_mode');
-          return;
-        }
-
-        latestRoomRef.current = updatedRoom;
-        setRoom(updatedRoom);
-
-        if (['SEARCHING', 'READY', 'COUNTDOWN', 'RACING'].includes(updatedRoom.state)) {
-          sessionStorage.setItem('devtype_active_room_id', updatedRoom.id);
-          sessionStorage.setItem('devtype_active_room_mode', updatedRoom.mode);
-        } else if (updatedRoom.state === 'COMPLETED' || updatedRoom.state === 'CANCELLED') {
-          sessionStorage.removeItem('devtype_active_room_id');
-          sessionStorage.removeItem('devtype_active_room_mode');
-        }
-
-        // When a ranked race finishes, show results modal
-        if (updatedRoom.state === 'COMPLETED') {
-          const isRankedMatch = updatedRoom.mode === 'classic' || updatedRoom.mode === 'duel';
-          if (isRankedMatch) {
-            setIsResultsModalOpen(true);
-            // Refresh ELO
-            leaderboardService.getMyRank().then((data) => {
-              if (data) {
-                setRank(data);
-                syncUserEloFromDatabase(user?.id, data);
-                window.dispatchEvent(new Event(ELO_EVENT_NAME));
-                try {
-                  localStorage.setItem('devtype_last_rating_update', Date.now().toString());
-                } catch { /* storage fallback */ }
-              }
-            });
-            // Refresh history
-            loadHistory(0, true);
-          }
-        }
-      },
-      onChat: (newChat) => {
-        if (!newChat) return;
-        setRoom((prev) => {
-          if (!prev) return prev;
-          const currentChats = prev.chat || [];
-          if (currentChats.some((c) => c.requestId === newChat.requestId || (c.id && c.id === newChat.id))) return prev;
-          const updated = { ...prev, chat: [...currentChats, newChat] };
-          latestRoomRef.current = updated;
-          return updated;
-        });
-      },
-      onStatus: (st) => setStatus(st),
-      onError: (err) => setError(err),
-    });
-
-    connectionRef.current = conn;
-    return conn;
-  };
 
   // Send socket events
   const send = (type, payload = {}) => {
@@ -453,7 +455,41 @@ export default function Multiplayer() {
               </p>
             </div>
 
-            {rank && (
+            {user?.role === 'ADMIN' ? (
+              <div className="mp-hero-profile-card" style={{ borderColor: 'rgba(37, 99, 235, 0.4)' }}>
+                <div className="mp-hero-card-header">
+                  <span className="mp-card-tier-label">PLATFORM GOVERNANCE</span>
+                  <span className="mp-card-tier-tag tier-master" style={{ background: 'rgba(37, 99, 235, 0.2)', color: 'var(--brand)' }}>
+                    Platform Maintainer
+                  </span>
+                </div>
+                <div className="mp-hero-rating-row">
+                  <div className="mp-hero-rating-num-wrap">
+                    <span className="mp-rating-number" style={{ fontSize: '1.2rem', color: 'var(--brand)' }}>Maintainer</span>
+                  </div>
+                  <div className="mp-standing-pill" style={{ background: 'rgba(37, 99, 235, 0.12)', color: 'var(--brand)', borderColor: 'rgba(37, 99, 235, 0.3)' }}>
+                    <ShieldCheck size={13} />
+                    <span>Non-Ranked</span>
+                  </div>
+                </div>
+                {status !== 'idle' && (
+                  <div className="mp-hero-connection-status">
+                    <span
+                      className="status-dot"
+                      style={{
+                        background:
+                          status === 'connected'
+                            ? '#10B981'
+                            : status === 'connecting'
+                            ? '#F59E0B'
+                            : '#EF4444',
+                      }}
+                    />
+                    <span className="status-label">Network: {status}</span>
+                  </div>
+                )}
+              </div>
+            ) : rank ? (
               <div className="mp-hero-profile-card">
                 <div className="mp-hero-card-header">
                   <span className="mp-card-tier-label">COMPETITIVE STANDING</span>
@@ -494,7 +530,7 @@ export default function Multiplayer() {
                   </div>
                 )}
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* ── SECTION 1: RANKED MATCHES ── */}

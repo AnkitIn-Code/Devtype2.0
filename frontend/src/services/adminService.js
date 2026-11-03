@@ -35,12 +35,12 @@ export const adminService = {
   },
 
   /**
-   * Suspend or reactivate user account with mandatory reason.
+   * Suspend, deactivate, or reactivate user account with mandatory reason and optional suspensionDays.
    */
-  async updateUserStatus(userId, { status, reason }) {
+  async updateUserStatus(userId, { status, reason, suspensionDays }) {
     const res = await apiFetch(`/api/v1/admin/users/${userId}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, reason }),
+      body: JSON.stringify({ status, reason, suspensionDays }),
     });
     return res.data;
   },
@@ -76,14 +76,24 @@ export const adminService = {
   },
 
   /**
-   * Review a moderation abuse report.
+   * Review a moderation abuse or support report, update status, internal note, and response message.
    */
-  async reviewReport(reportId, { status, resolutionNote }) {
+  async reviewReport(reportId, { status, resolutionNote, adminResponse }) {
     const res = await apiFetch(`/api/v1/admin/reports/${reportId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, resolutionNote }),
+      body: JSON.stringify({ status, resolutionNote, adminResponse }),
     });
     return res.data;
+  },
+
+  /**
+   * Delete an obsolete, resolved, or spurious moderation ticket.
+   */
+  async deleteReport(reportId) {
+    const res = await apiFetch(`/api/v1/admin/reports/${reportId}`, {
+      method: 'DELETE',
+    });
+    return res?.data;
   },
 
   /**
@@ -99,6 +109,22 @@ export const adminService = {
 
     const res = await apiFetch(`/api/v1/admin/audit-logs?${params.toString()}`);
     return res.data;
+  },
+
+  /**
+   * Append an event directly to the administrative audit log.
+   */
+  async recordAuditLog({ actionType, targetType, targetId, previousState, newState, reason }) {
+    try {
+      const res = await apiFetch('/api/v1/admin/audit-logs', {
+        method: 'POST',
+        body: JSON.stringify({ actionType, targetType, targetId, previousState, newState, reason }),
+      });
+      return res.data;
+    } catch (err) {
+      console.warn('Failed to record administrative audit log:', err.message);
+      return null;
+    }
   },
 
   /**

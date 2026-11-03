@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Moon, Sun, Bell, Play, Menu } from 'lucide-react';
+import { Moon, Sun, Bell, HelpCircle, Menu } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useNotifications } from '../context/NotificationContext';
 import NotificationPopover from './notifications/NotificationPopover';
@@ -78,15 +78,15 @@ export default function TopBar({ onOpenMenu, menuOpen }) {
           )}
         </div>
 
-        {/* Dark pill button — navigates to practice workspace */}
+        {/* Support Button — navigates to Support Desk & FAQs */}
         <button
-          className="btn-start-practice"
-          id="btn-start-practice"
-          aria-label="Start practice"
-          onClick={() => navigate('/practice')}
+          className="btn-support"
+          id="btn-support"
+          aria-label="Support Desk & FAQs"
+          onClick={() => navigate('/support')}
         >
-          <Play size={12} fill="currentColor" strokeWidth={0} />
-          <span>Start Practice</span>
+          <HelpCircle size={15} strokeWidth={2.2} />
+          <span>Support</span>
         </button>
       </div>
     </header>

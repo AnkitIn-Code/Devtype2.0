@@ -11,5 +11,11 @@ public record UpdateUserStatusRequest(
 
         @NotBlank(message = "Reason is required for account status changes")
         @Size(min = 3, max = 500, message = "Reason must be between 3 and 500 characters")
-        String reason
-) {}
+        String reason,
+
+        Integer suspensionDays
+) {
+    public UpdateUserStatusRequest(UserStatus status, String reason) {
+        this(status, reason, null);
+    }
+}

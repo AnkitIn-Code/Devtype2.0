@@ -98,13 +98,19 @@ public class SrsService {
         int nextRepetition;
         Instant nextDue;
 
-        // Tier 4: Mastered (Flawless precision and high speed: retained in Master Deck)
+        // Tier 4: Mastered / High Precision & Speed (SM-2 progression)
         if (acc >= 98.5 && errors <= 1 && speed >= 65) {
-            isMastered = true;
-            interval = null;
-            nextDue = null;
             nextRepetition = currentRepetition + 1;
             qualityScore = 5;
+            if (nextRepetition == 1) {
+                interval = 1;
+            } else if (nextRepetition == 2) {
+                interval = 6;
+            } else {
+                interval = (int) Math.round(6 * (currentEaseFactor != null ? currentEaseFactor.doubleValue() : 2.50));
+            }
+            isMastered = nextRepetition >= 4;
+            nextDue = now.plus(interval, ChronoUnit.DAYS);
         }
         // Tier 3: Strong / High Accuracy (10 to 18 days recall)
         else if (acc >= 96.0 && errors <= 2 && speed >= 40) {

@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 
@@ -105,15 +106,52 @@ public class AuthService {
         }
 
         if (user.getStatus() == UserStatus.SUSPENDED) {
-            meterRegistry.counter("devtype.auth.attempts", "outcome", "failure", "reason", "account_suspended").increment();
-            log.warn("Login attempt for suspended user ID: {}", user.getId());
-            throw new ApiException("Account is suspended. Please contact support.", HttpStatus.FORBIDDEN);
+            // Check if suspension period has expired; auto-reinstate if true
+            if (user.getSuspendedUntil() != null && Instant.now().isAfter(user.getSuspendedUntil())) {
+                log.info("Suspension period expired for user ID: {}. Automatically restoring account to ACTIVE.", user.getId());
+                user.setStatus(UserStatus.ACTIVE);
+                user.setSuspendedUntil(null);
+                user.setSuspensionReason(null);
+                userRepository.save(user);
+            } else {
+                meterRegistry.counter("devtype.auth.attempts", "outcome", "failure", "reason", "account_suspended").increment();
+                log.warn("Login attempt for suspended user ID: {}", user.getId());
+
+                String timeRemaining = "indefinite";
+                if (user.getSuspendedUntil() != null) {
+                    Duration remaining = Duration.between(Instant.now(), user.getSuspendedUntil());
+                    long totalHours = remaining.toHours();
+                    long days = totalHours / 24;
+                    long hours = totalHours % 24;
+                    if (days > 0) {
+                        timeRemaining = days + " day" + (days > 1 ? "s" : "") + (hours > 0 ? ", " + hours + " hr" + (hours > 1 ? "s" : "") : "");
+                    } else if (hours > 0) {
+                        long minutes = remaining.toMinutes() % 60;
+                        timeRemaining = hours + " hr" + (hours > 1 ? "s" : "") + (minutes > 0 ? ", " + minutes + " min" : "");
+                    } else {
+                        long minutes = Math.max(1, remaining.toMinutes());
+                        timeRemaining = minutes + " minute" + (minutes > 1 ? "s" : "");
+                    }
+                }
+                String reasonSuffix = (user.getSuspensionReason() != null && !user.getSuspensionReason().isBlank())
+                        ? " Reason: " + user.getSuspensionReason() : "";
+                throw new ApiException("Account is suspended. Suspension expires in " + timeRemaining + "." + reasonSuffix, HttpStatus.FORBIDDEN);
+            }
         }
 
         if (user.getStatus() == UserStatus.DEACTIVATED) {
             meterRegistry.counter("devtype.auth.attempts", "outcome", "failure", "reason", "account_deactivated").increment();
             log.warn("Login attempt for deactivated user ID: {}", user.getId());
-            throw new ApiException("Account is deactivated. Please contact support.", HttpStatus.FORBIDDEN);
+
+            String deletionNotice = "";
+            if (user.getScheduledDeletionAt() != null) {
+                if (Instant.now().isAfter(user.getScheduledDeletionAt())) {
+                    throw new ApiException("Account is deactivated and queued in the permanent deletion purge pipeline.", HttpStatus.FORBIDDEN);
+                }
+                long daysRemaining = Math.max(1, Duration.between(Instant.now(), user.getScheduledDeletionAt()).toDays());
+                deletionNotice = " Queued for permanent data deletion in " + daysRemaining + " day(s).";
+            }
+            throw new ApiException("Account is deactivated." + deletionNotice + " Contact support to appeal or reactivate.", HttpStatus.FORBIDDEN);
         }
 
         user.setLastLoginAt(Instant.now());

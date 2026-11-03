@@ -12,8 +12,20 @@ const getStorageKey = (userId) => {
  */
 export const snippetService = {
   /**
-   * Fetches only custom snippets created by the specified user.
+   * Fetches all snippets stored in the database.
    */
+  async getAllSnippets() {
+    try {
+      const res = await apiFetch('/api/v1/snippets');
+      if (Array.isArray(res)) return res;
+      if (Array.isArray(res?.data)) return res.data;
+      if (Array.isArray(res?.content)) return res.content;
+      return [];
+    } catch (err) {
+      console.warn('Failed to fetch all snippets from backend:', err);
+      return [];
+    }
+  },
   async getCustomSnippets(userId) {
     let serverSnippets = [];
     if (userId) {

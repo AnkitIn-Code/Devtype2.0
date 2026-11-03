@@ -1,6 +1,10 @@
 // src/services/api.js
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
+
+if (!API_BASE_URL) {
+  throw new Error('Set VITE_API_BASE_URL in frontend/.env before starting or building the frontend.');
+}
 
 export class ApiError extends Error {
   constructor(message, status = 0, validationErrors = [], raw = null) {

@@ -14,6 +14,8 @@ RUN npm ci
 
 # Copy source and build production bundle
 COPY . ./
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
 # --- Stage 2: Minimal Web Server ---

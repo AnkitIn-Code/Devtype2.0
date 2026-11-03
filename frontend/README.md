@@ -54,12 +54,16 @@ JWT Bearer access tokens are held in `localStorage` under the key `devtype_auth_
 
 ## Environment Configuration
 
-Configure the backend REST API endpoint in `.env`:
+Copy `.env.example` to `.env` in the `frontend` directory and configure the backend URL (without `/api`):
 
 ```env
 # URL of the Spring Boot backend
 VITE_API_BASE_URL=http://localhost:8080
 ```
+
+This variable is required and is used for both REST requests and multiplayer WebSocket connections. There is no hardcoded backend URL fallback. Restart the Vite development server after changing `.env`; for production, rebuild the frontend because Vite embeds this value at build time.
+
+For Docker builds, `.env` files are excluded from the image build context. Supply the same value with `docker build --build-arg VITE_API_BASE_URL=https://your-backend.example.com -t devtype-frontend ./frontend`.
 
 ### Backend CORS Requirements
 The Spring Boot backend should allow the frontend origin. In `application.yml`:

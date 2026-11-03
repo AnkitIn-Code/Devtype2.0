@@ -12748,10 +12748,12 @@ body:has(.practice-workspace-root),
   background: var(--glass-card);
 }
 
+[data-theme='dark'] .landing-btn-hero-sec,
 [data-theme='dark'] .landing-btn-cta-sec {
   background: var(--bg-surface);
 }
 
+[data-theme='dark'] .landing-btn-hero-sec:hover,
 [data-theme='dark'] .landing-btn-cta-sec:hover {
   background: var(--bg-hover);
 }

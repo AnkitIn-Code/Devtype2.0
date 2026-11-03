@@ -15,8 +15,7 @@ RUN npm ci
 # Copy source and build production bundle
 COPY . ./
 ARG VITE_API_BASE_URL
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-RUN npm run build
+RUN if [ -z "$VITE_API_BASE_URL" ]; then unset VITE_API_BASE_URL; fi; npm run build
 
 # --- Stage 2: Minimal Web Server ---
 FROM nginx:1.27-alpine AS runtime

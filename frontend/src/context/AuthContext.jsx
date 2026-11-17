@@ -13,12 +13,12 @@ export function AuthProvider({ children }) {
     return !(authService.getToken() && authService.getStoredUser());
   });
 
-  // Eager prefetch user data as early as possible
+  // Eager prefetch user & admin data as early as possible
   useEffect(() => {
     if (user?.id) {
-      dataCache.prefetchAll(user.id);
+      dataCache.prefetchAll(user.id, user);
     }
-  }, [user?.id]);
+  }, [user]);
 
   // Validate or synchronize authentication state on boot
   useEffect(() => {
@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
           setUser(freshProfile);
           setToken(activeToken);
           // Kick off background prefetch immediately
-          dataCache.prefetchAll(freshProfile.id);
+          dataCache.prefetchAll(freshProfile.id, freshProfile);
         }
       } catch (err) {
         // If server returns 401 Unauthorized, token has expired or is invalid
@@ -75,6 +75,9 @@ export function AuthProvider({ children }) {
     const authData = await authService.login(credentials);
     setToken(authData?.accessToken || null);
     setUser(authData?.user || null);
+    if (authData?.user?.id) {
+      dataCache.prefetchAll(authData.user.id, authData.user);
+    }
     return authData;
   }, []);
 

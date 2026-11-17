@@ -5,6 +5,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { adminService } from '../services/adminService';
 import useAdminQuery from '../components/admin/useAdminQuery';
+import { dataCache } from '../services/dataCache';
 import { initials } from '../components/admin/adminFormat';
 import AdminOverview from '../components/admin/AdminOverview';
 import AdminUsers from '../components/admin/AdminUsers';
@@ -31,13 +32,17 @@ export default function Admin() {
   const [mobileNav, setMobileNav] = useState(false);
   const closeNavButton = useRef(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const overview = useAdminQuery(adminService.getOverview, refreshKey);
-  const metrics = useAdminQuery(adminService.getMetricsSummary, refreshKey);
+  const overview = useAdminQuery(adminService.getOverview, refreshKey, 'overview');
+  const metrics = useAdminQuery(adminService.getMetricsSummary, refreshKey, 'metrics');
   const current = NAVIGATION.find(item => item.to === location.pathname.replace(/\/$/, '')) || NAVIGATION[0];
   const displayName = user?.displayName || user?.username || 'Administrator';
   const waiting = overview.data ? overview.data.openReports + overview.data.pendingReviewReports : null;
   const refresh = () => setRefreshKey(value => value + 1);
   const loading = overview.loading || metrics.loading;
+
+  useEffect(() => {
+    dataCache.prefetchAdmin();
+  }, []);
 
   useEffect(() => {
     const originalTitle = document.title;
@@ -63,7 +68,7 @@ export default function Admin() {
       <div className="adm-brand-row"><Link to="/admin" className="adm-brand" onClick={() => setMobileNav(false)}><span className="adm-brand-mark"><Code2 size={23} /></span><span>DevType<small>ADMIN CONSOLE</small></span></Link><button ref={closeNavButton} className="adm-mobile-close adm-icon-button" aria-label="Close navigation" onClick={() => setMobileNav(false)}><X size={20} /></button></div>
       <div className="adm-workspace"><span className="adm-workspace-icon"><ShieldCheck size={17} /></span><div><strong>Platform workspace</strong><span>Administration</span></div></div>
       <p className="adm-nav-label">MANAGE</p>
-      <nav aria-label="Administration">{NAVIGATION.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/admin'} className={({ isActive }) => `adm-nav-link ${isActive ? 'is-active' : ''}`} onClick={() => setMobileNav(false)}><Icon size={18} /><span>{label}</span>{to === '/admin/reports' && waiting > 0 && <b>{waiting}</b>}</NavLink>)}</nav>
+      <nav aria-label="Administration">{NAVIGATION.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/admin'} className={({ isActive }) => `adm-nav-link ${isActive ? 'is-active' : ''}`} onMouseEnter={() => dataCache.prefetchAdmin()} onClick={() => setMobileNav(false)}><Icon size={18} /><span>{label}</span>{to === '/admin/reports' && waiting > 0 && <b>{waiting}</b>}</NavLink>)}</nav>
       <div className="adm-sidebar-bottom"><div className="adm-sidebar-note"><ShieldCheck size={18} /><strong>Accountable by design</strong><p>Access changes and moderation decisions are recorded for review.</p><Link to="/admin/audit" onClick={() => setMobileNav(false)}>Explore the audit log <ChevronRight size={14} /></Link></div><div className="adm-sidebar-profile"><span className="adm-avatar">{initials(displayName)}</span><div><strong title={displayName}>{displayName}</strong><span>Administrator</span></div><button aria-label="Sign out" title="Sign out" className="adm-icon-button" onClick={() => { logout(); navigate('/login', { replace: true }); }}><LogOut size={17} /></button></div></div>
     </aside>
     <div className="adm-main" inert={mobileNav}>

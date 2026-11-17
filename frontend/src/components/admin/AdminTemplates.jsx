@@ -6,9 +6,11 @@ import {
 } from 'lucide-react';
 import { snippetService } from '../../services/snippetService';
 import { adminService } from '../../services/adminService';
+import { dataCache } from '../../services/dataCache';
 import { useNotification } from '../../context/NotificationContext';
 import { Badge, DetailList, Dialog, EmptyState, Panel, QueryState } from './AdminPrimitives';
 import { formatDate, formatNumber } from './adminFormat';
+import { highlightCodeHtml } from '../../utils/codeTokenizer';
 
 const LANGUAGES = ['All', 'JavaScript', 'TypeScript', 'Python', 'C++', 'C', 'Go', 'Rust', 'Java', 'SQL'];
 const DIFFICULTIES = ['All', 'Beginner', 'Intermediate', 'Advanced'];
@@ -16,8 +18,9 @@ const SOURCES = ['All', 'Curated (System)', 'Custom (User)'];
 
 export default function AdminTemplates({ refreshKey, onChange }) {
   const { showSuccess, showError } = useNotification();
-  const [snippets, setSnippets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedTemplates = dataCache.getAdminData('templates') || dataCache.getTemplates();
+  const [snippets, setSnippets] = useState(() => (Array.isArray(cachedTemplates) && cachedTemplates.length > 0 ? cachedTemplates : []));
+  const [loading, setLoading] = useState(() => !cachedTemplates || cachedTemplates.length === 0);
   const [error, setError] = useState(null);
 
   // Filters
@@ -36,17 +39,23 @@ export default function AdminTemplates({ refreshKey, onChange }) {
   const [deletingId, setDeletingId] = useState(null);
 
   const fetchSnippets = useCallback(async () => {
-    setLoading(true);
+    if (!snippets || snippets.length === 0) setLoading(true);
     setError(null);
     try {
       const data = await snippetService.getAllSnippets();
-      setSnippets(data);
+      if (Array.isArray(data)) {
+        setSnippets(data);
+        dataCache.setAdminData('templates', data);
+        dataCache.setTemplates(data);
+      }
     } catch (err) {
-      setError(err.message || 'Failed to load templates from database');
+      if (!snippets || snippets.length === 0) {
+        setError(err.message || 'Failed to load templates from database');
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [snippets]);
 
   useEffect(() => {
     fetchSnippets();
@@ -310,7 +319,13 @@ export default function AdminTemplates({ refreshKey, onChange }) {
 
                       {/* Syntax Code Preview */}
                       <div className="adm-card-code-preview">
-                        <pre><code>{codeSnippetPreview || '// Empty implementation'}</code></pre>
+                        <pre>
+                          <code
+                            dangerouslySetInnerHTML={{
+                              __html: highlightCodeHtml(codeSnippetPreview || '// Empty implementation', s.language),
+                            }}
+                          />
+                        </pre>
                       </div>
 
                       {/* Metadata Row */}

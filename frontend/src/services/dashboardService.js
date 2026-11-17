@@ -1,5 +1,5 @@
 // src/services/dashboardService.js
-import { apiFetch } from './api';
+import { apiFetch } from './api.js';
 
 /**
  * Service for communicating with backend dashboard endpoints.

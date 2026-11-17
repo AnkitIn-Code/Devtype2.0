@@ -1,6 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trophy, Swords, Zap, ArrowRight, Clock, Users, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Trophy, Swords, Zap, ArrowRight, Clock, Users, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+
+function normalizeLang(raw) {
+  if (!raw) return '';
+  const s = raw.trim().toLowerCase();
+  if (s === 'c++' || s === 'cpp') return 'C++';
+  if (s === 'c') return 'C';
+  if (s === 'javascript' || s === 'js') return 'JavaScript';
+  if (s === 'typescript' || s === 'ts') return 'TypeScript';
+  if (s === 'python' || s === 'py') return 'Python';
+  if (s === 'java') return 'Java';
+  if (s === 'go' || s === 'golang') return 'Go';
+  if (s === 'rust' || s === 'rs') return 'Rust';
+  if (s === 'sql') return 'SQL';
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 
 export default function RankedMatchModal({
   isOpen,
@@ -8,10 +23,11 @@ export default function RankedMatchModal({
   mode, // 'classic' or 'duel'
   templates,
   onStartMatchmaking,
+  onTimeout,
   errorMessage,
 }) {
-  const [step, setStep] = useState('select-lang'); // 'select-lang' | 'searching' | 'found'
-  const [selectedLang, setSelectedLang] = useState('JavaScript');
+  const [step, setStep] = useState('select-lang'); // 'select-lang' | 'searching' | 'timed-out'
+  const [selectedLang, setSelectedLang] = useState('C++');
   const [searchSeconds, setSearchSeconds] = useState(0);
   const [isExtendedTime, setIsExtendedTime] = useState(false);
   const timerRef = useRef(null);
@@ -27,26 +43,35 @@ export default function RankedMatchModal({
     };
   }, []);
 
-  const STANDARD_LANGUAGES = ['JavaScript', 'Python', 'C++', 'TypeScript', 'Java', 'Go', 'Rust', 'C', 'SQL'];
+  const STANDARD_LANGUAGES = ['C++', 'Java', 'Python', 'JavaScript', 'TypeScript', 'C', 'Go', 'Rust', 'SQL'];
 
-  // Derive unique languages available from typing templates + standard catalog
+  // Derive unique normalized languages (no duplicates like "c" & "C", or "cpp" & "C++")
   const availableLanguages = Array.from(
     new Set([
       ...STANDARD_LANGUAGES,
-      ...templates
+      ...(templates || [])
         .filter((t) => !t.bugFix && t.language)
-        .map((t) => t.language)
+        .map((t) => normalizeLang(t.language))
     ])
-  ).sort();
+  ).sort((a, b) => a.localeCompare(b));
 
-  // Matchmaking timer logic: 10s initially, expands to 30s
+  // Matchmaking timer logic:
+  // Phase 1 (0-60s): 1-minute initial search limit
+  // Phase 2 (60-120s): Expands to 2-minute extended search limit
+  // Phase 3 (120s): Search stops automatically and displays timeout prompt
   useEffect(() => {
     if (step === 'searching') {
       timerRef.current = setInterval(() => {
         setSearchSeconds((prev) => {
           const next = prev + 1;
-          if (next >= 10) {
+          if (next >= 60) {
             setIsExtendedTime(true);
+          }
+          if (next >= 120) {
+            clearInterval(timerRef.current);
+            setStep('timed-out');
+            onTimeout?.();
+            return 120;
           }
           return next;
         });
@@ -58,7 +83,13 @@ export default function RankedMatchModal({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [step]);
+  }, [step, onTimeout]);
+
+  const formatTime = (totalSecs) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
 
   if (!isOpen) return null;
 
@@ -129,10 +160,10 @@ export default function RankedMatchModal({
 
             <div className="mp-lang-cards-grid">
               {availableLanguages.map((lang) => {
-                const count = templates.filter(
-                  (t) => !t.bugFix && t.language?.toLowerCase() === lang.toLowerCase()
+                const count = (templates || []).filter(
+                  (t) => !t.bugFix && normalizeLang(t.language) === lang
                 ).length;
-                const isSelected = selectedLang.toLowerCase() === lang.toLowerCase();
+                const isSelected = normalizeLang(selectedLang) === lang;
 
                 return (
                   <div
@@ -200,25 +231,25 @@ export default function RankedMatchModal({
               Matching for <strong>{modeTitle}</strong> in <strong>{selectedLang}</strong> · {requiredPlayers} Players Needed
             </p>
 
-            {/* Timer Banner */}
+            {/* Timer Banner (60s initial, 120s extended max) */}
             <div className="mp-search-timer-box">
               <Clock size={16} className="text-amber-500 animate-spin" />
               <span>
-                Search Time: <strong>{searchSeconds}s</strong> / {isExtendedTime ? '30s' : '10s'}
+                Search Time: <strong>{formatTime(searchSeconds)}</strong> ({searchSeconds}s) / {isExtendedTime ? '2:00 (2m max)' : '1:00 (1m)'}
               </span>
             </div>
 
-            {/* Dynamic Notice when > 10s */}
+            {/* Dynamic Notice when > 60s */}
             {isExtendedTime ? (
               <div className="mp-extended-time-banner">
                 <div className="banner-icon-dot" />
                 <span>
-                  It will take some time as not many users are currently present online. Expanding matchmaking pool to find opponents...
+                  Expanding matchmaking pool to find opponents across wider skill ranges (up to 2 minutes max)...
                 </span>
               </div>
             ) : (
               <p className="mp-quick-search-hint">
-                Scanning active queues for closely rated opponents...
+                Scanning active queues for closely rated opponents (1-minute initial search)...
               </p>
             )}
 
@@ -229,6 +260,76 @@ export default function RankedMatchModal({
                 onClick={handleCancelSearch}
               >
                 Cancel Matchmaking
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 3: Matchmaking Timed Out (> 2 minutes) */}
+        {step === 'timed-out' && (
+          <div className="mp-modal-body text-center">
+            <div
+              className="mp-timeout-icon-wrap"
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px auto',
+                color: '#EF4444',
+              }}
+            >
+              <AlertCircle size={32} />
+            </div>
+
+            <h3 className="mp-search-status-title" style={{ color: '#EF4444' }}>Matchmaking Timed Out</h3>
+            <p className="mp-search-meta" style={{ maxWidth: 440, margin: '8px auto 20px auto', lineHeight: 1.6 }}>
+              No compatible opponents were found for <strong>{modeTitle}</strong> in <strong>{selectedLang}</strong> within the 2-minute search limit.
+            </p>
+
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--r12)',
+                padding: '12px 16px',
+                fontSize: '0.86rem',
+                color: 'var(--t3)',
+                marginBottom: 20,
+              }}
+            >
+              You can search again, switch to another programming language with more active players, or create a private room to challenge friends directly.
+            </div>
+
+            <div className="mp-modal-actions justify-center" style={{ gap: 12 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleCancelSearch}
+              >
+                Return to Lobby
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setSearchSeconds(0);
+                  setIsExtendedTime(false);
+                  setStep('select-lang');
+                }}
+              >
+                Change Language
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmLanguage}
+              >
+                <RefreshCw size={15} /> Search Again
               </button>
             </div>
           </div>

@@ -21,11 +21,11 @@ export default function AdminUsers({ refreshKey, onChange }) {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  const hasFilters = searchInput || filters.accountType || status;
   const fetchUsers = useCallback(() => adminService.getUsers({ ...filters, role: 'USER', status, size: 10 }), [filters, status]);
-  const query = useAdminQuery(fetchUsers, refreshKey);
+  const query = useAdminQuery(fetchUsers, refreshKey, (!filters.page && !hasFilters) ? 'users' : null);
   const updateFilter = (key, value) => setFilters(previous => ({ ...previous, [key]: value, page: 0 }));
   const reset = () => { setSearchInput(''); setFilters({ search: '', accountType: '', page: 0 }); setParams({}); };
-  const hasFilters = searchInput || filters.accountType || status;
 
   // Filter out the administrator from user directory table as admin is the sole platform maintainer, not an ordinary user
   const userAccounts = (query.data?.content || []).filter(account => account.role !== 'ADMIN' && String(account.id) !== String(currentAdmin?.id));

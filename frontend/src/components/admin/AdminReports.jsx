@@ -34,7 +34,7 @@ export default function AdminReports({ refreshKey, onChange }) {
     () => adminService.getReports({ page, size: 10, status, category }),
     [page, status, category]
   );
-  const query = useAdminQuery(fetchReports, refreshKey);
+  const query = useAdminQuery(fetchReports, refreshKey, (page === 0 && !status && !category) ? 'reports' : null);
 
   return (
     <>

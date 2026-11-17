@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, Send, LogOut, Trophy, MessageSquare, MousePointerClick, ShieldAlert } from 'lucide-react';
+import { Clock, Send, LogOut, Trophy, MessageSquare, MousePointerClick, ShieldAlert, RefreshCw, WifiOff } from 'lucide-react';
 import { supportService } from '../../services/supportService';
 
 export default function MultiplayerRaceEditor({
@@ -8,6 +8,7 @@ export default function MultiplayerRaceEditor({
   user,
   send,
   onLeave,
+  status = 'connected',
   isRanked = false,
 }) {
   const target = room?.target || '';
@@ -56,7 +57,11 @@ export default function MultiplayerRaceEditor({
   // Auto-ready in ranked mode if room is in READY state
   useEffect(() => {
     if (room?.state === 'READY' && isRanked && !me?.ready) {
-      send('READY', {});
+      try {
+        send('READY', {});
+      } catch (err) {
+        console.warn('Auto-ready send deferred:', err.message);
+      }
     }
   }, [room?.state, isRanked, me?.ready, send]);
 
@@ -252,7 +257,11 @@ export default function MultiplayerRaceEditor({
 
   const sendInput = (content) => {
     sequenceRef.current += 1;
-    send('INPUT', { content, sequence: sequenceRef.current });
+    try {
+      send('INPUT', { content, sequence: sequenceRef.current });
+    } catch (err) {
+      console.warn('Race input buffered (socket offline):', err.message);
+    }
   };
 
   const handleSendChat = (e) => {
@@ -343,6 +352,29 @@ export default function MultiplayerRaceEditor({
           </button>
         </div>
       </div>
+
+      {/* Connection Recovery Notification */}
+      {status && (status === 'reconnecting' || status === 'connecting') && (
+        <div
+          className="mp-reconnecting-bar animate-fade-in"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 16px',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '8px',
+            marginBottom: '14px',
+            fontSize: '0.84rem',
+            color: '#F59E0B',
+            fontWeight: 500,
+          }}
+        >
+          <RefreshCw size={14} className="animate-spin" />
+          <span>Synchronizing with live match session... Your typing progress is preserved and will broadcast automatically.</span>
+        </div>
+      )}
 
       {/* Main Split Layout: Left Editor | Right Competitors & Chat */}
       <div className="mp-race-grid">

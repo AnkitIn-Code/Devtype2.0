@@ -92,25 +92,103 @@ export const multiplayerService = {
     }),
 };
 
+export function getWebSocketUrl() {
+  const envWsUrl = import.meta.env.VITE_WS_URL?.trim();
+  if (envWsUrl) {
+    const clean = envWsUrl.replace(/\/+$/, '');
+    return clean.endsWith('/ws/multiplayer') ? clean : `${clean}/ws/multiplayer`;
+  }
+
+  const base = API_BASE_URL?.trim() || '';
+
+  if (typeof window !== 'undefined') {
+    const pageProtocol = window.location.protocol; // 'http:' or 'https:'
+    const pageHost = window.location.host;
+
+    if (!base || !base.startsWith('http')) {
+      const wsProto = pageProtocol === 'https:' ? 'wss:' : 'ws:';
+      return `${wsProto}//${pageHost}/ws/multiplayer`;
+    }
+
+    try {
+      const url = new URL(base);
+      const isIpHost = /^(\d{1,3}\.){3}\d{1,3}$/.test(url.hostname);
+
+      let wsProto;
+      if (pageProtocol === 'https:') {
+        // Enforce wss: in HTTPS contexts to prevent browser mixed-content blocks
+        wsProto = 'wss:';
+      } else {
+        // In HTTP context, if target is an IP address or localhost, use ws:
+        // Bare IPv4 addresses on cloud VMs do not possess valid public CA TLS certificates
+        if (isIpHost || url.hostname === 'localhost' || url.protocol === 'http:') {
+          wsProto = 'ws:';
+        } else {
+          wsProto = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        }
+      }
+      return `${wsProto}//${url.host}/ws/multiplayer`;
+    } catch {
+      const wsProto = pageProtocol === 'https:' ? 'wss:' : 'ws:';
+      return `${wsProto}//${pageHost}/ws/multiplayer`;
+    }
+  }
+
+  return 'ws://localhost:8080/ws/multiplayer';
+}
+
 // Authentication is sent in the first frame, never a URL or log.
 export function connectMultiplayer({ onState, onStatus, onError, onChat }) {
   let socket, stopped = false, attempts = 0, timer, heartbeat, roomId;
+  let pendingInput = null;
+  const outboundQueue = [];
+
   const send = frame => {
-    if (socket?.readyState !== WebSocket.OPEN) throw new Error('Reconnect before sending.');
-    socket.send(JSON.stringify(frame));
+    if (socket?.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify(frame));
+        return true;
+      } catch (err) {
+        console.warn('Socket write bypassed:', err.message);
+      }
+    }
+    // Safely buffer critical frames instead of throwing an unhandled exception
+    if (frame.type === 'INPUT') {
+      pendingInput = frame;
+    } else if (frame.type === 'SYNC' || frame.type === 'READY') {
+      if (!outboundQueue.some(q => q.type === frame.type)) {
+        outboundQueue.push(frame);
+      }
+    }
+    return false;
   };
+
   const connect = () => {
     onStatus('connecting');
-    socket = new WebSocket(`${API_BASE_URL.replace(/^http/, 'ws')}/ws/multiplayer`);
+    const wsUrl = getWebSocketUrl();
+    socket = new WebSocket(wsUrl);
     socket.onopen = () => send({ type: 'AUTH', token: localStorage.getItem('devtype_auth_token') });
     socket.onmessage = event => {
       let frame;
       try { frame = JSON.parse(event.data); } catch { onError('Invalid server response.'); return; }
       if (frame.type === 'AUTHENTICATED') {
-        attempts = 0; onStatus('connected');
+        attempts = 0;
+        onStatus('connected');
         if (roomId) send({ type: 'SYNC', roomId });
+        while (outboundQueue.length > 0) {
+          const qFrame = outboundQueue.shift();
+          send(qFrame);
+        }
+        if (pendingInput) {
+          send(pendingInput);
+          pendingInput = null;
+        }
         clearInterval(heartbeat);
-        heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) send(roomId ? { type: 'SYNC', roomId } : { type: 'PING' }); }, 5000);
+        heartbeat = setInterval(() => {
+          if (socket?.readyState === WebSocket.OPEN) {
+            send(roomId ? { type: 'SYNC', roomId } : { type: 'PING' });
+          }
+        }, 5000);
       }
       if (frame.type === 'STATE') { roomId = frame.room.id; onState(frame.room, frame.serverTime); }
       if (frame.type === 'CHAT' && onChat) { onChat(frame.chat, frame.serverTime); }
@@ -122,8 +200,10 @@ export function connectMultiplayer({ onState, onStatus, onError, onChat }) {
       clearInterval(heartbeat);
       if (stopped) return;
       if (event.code === 1008) { onStatus('session expired'); onError('Sign in again to restore your session.'); return; }
-      if (++attempts > 8) { onStatus('failed'); onError('Connection failed. Reload to retry.'); return; }
-      onStatus('reconnecting'); timer = setTimeout(connect, Math.min(30000, 500 * 2 ** attempts) * (0.75 + Math.random() * 0.5));
+      if (++attempts > 12) { onStatus('failed'); onError('Connection failed. Reload to retry.'); return; }
+      onStatus('reconnecting');
+      const delay = Math.min(4000, Math.max(400, Math.floor(400 * Math.pow(1.35, attempts)))) + Math.floor(Math.random() * 250);
+      timer = setTimeout(connect, delay);
     };
   };
   connect();

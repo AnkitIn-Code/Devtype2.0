@@ -11,6 +11,7 @@ import {
 import { PREDEFINED_BLUEPRINTS } from '../data/predefinedBlueprints';
 import { templateService } from '../services/templateService';
 import { snippetService } from '../services/snippetService';
+import { highlightCodeHtml } from '../utils/codeTokenizer';
 
 const TRACKS = [
   { id: 'all', label: 'All Tracks' },
@@ -622,23 +623,15 @@ export default function Templates() {
 
                   {/* Code snippet preview terminal */}
                   {(item.code || item.codeSnippet) && (
-                    <div
-                      style={{
-                        marginBottom: 14,
-                        padding: '8px 12px',
-                        background: 'rgba(0, 0, 0, 0.35)',
-                        border: '1px solid var(--glass-border-sub)',
-                        borderRadius: 8,
-                        fontSize: '0.75rem',
-                        fontFamily: 'var(--font-mono)',
-                        color: 'var(--t2)',
-                        overflow: 'hidden',
-                        maxHeight: 74,
-                      }}
-                    >
-                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.4 }}>
-                        {(item.code || item.codeSnippet).split('\n').slice(0, 3).join('\n')}
-                      </pre>
+                    <div className="tpl-code-preview">
+                      <pre
+                        dangerouslySetInnerHTML={{
+                          __html: highlightCodeHtml(
+                            (item.code || item.codeSnippet).split('\n').slice(0, 3).join('\n'),
+                            item.language || item.languages?.[0] || 'cpp'
+                          ),
+                        }}
+                      />
                     </div>
                   )}
 

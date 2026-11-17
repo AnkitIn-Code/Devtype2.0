@@ -57,6 +57,21 @@ export function normalizeLang(lang: string): string {
 }
 
 /**
+ * Highlights a code snippet and returns HTML string with Prism syntax tokens.
+ */
+export function highlightCodeHtml(code: string = '', language: string = 'javascript'): string {
+  if (!code) return '';
+  const langKey = normalizeLang(language || 'javascript');
+  const grammar = Prism.languages[langKey] || Prism.languages.javascript;
+  if (!grammar) return code.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  try {
+    return Prism.highlight(code, grammar, langKey);
+  } catch {
+    return code.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+}
+
+/**
  * Recursively extracts character tokens from Prism token hierarchy.
  */
 function flattenPrismTokens(

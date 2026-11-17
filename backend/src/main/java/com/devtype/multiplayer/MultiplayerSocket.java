@@ -19,6 +19,7 @@ public class MultiplayerSocket extends TextWebSocketHandler {
     private final JwtDecoder decoder;
     private final ObjectMapper json;
     private final Map<String, Client> clients = new ConcurrentHashMap<>();
+    private final java.util.concurrent.ExecutorService broadcastExecutor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
 
     private static class Client {
         final WebSocketSession socket;
@@ -54,13 +55,15 @@ public class MultiplayerSocket extends TextWebSocketHandler {
 
     private void sendDirect(Client c, TextMessage msg) {
         try {
-            synchronized (c.socket) {
-                if (c.socket.isOpen()) {
-                    c.socket.sendMessage(msg);
+            if (c.socket.isOpen()) {
+                synchronized (c.socket) {
+                    if (c.socket.isOpen()) {
+                        c.socket.sendMessage(msg);
+                    }
                 }
             }
         } catch (Exception e) {
-            log.warn("Failed to send socket frame to user {}: {}", c.user, e.getMessage());
+            log.debug("Socket frame send to user {} bypassed: {}", c.user, e.getMessage());
         }
     }
 
@@ -131,10 +134,7 @@ public class MultiplayerSocket extends TextWebSocketHandler {
             } else if (room != null) {
                 c.room = room.id;
             }
-
-            if (room != null) {
-                broadcastToRoom(room, now);
-            }
+            // Room state broadcast is dispatched asynchronously via RoomUpdatedEvent from service.save()
         } catch (ApiException | IllegalArgumentException e) {
             send(c, Map.of("type", "ERROR", "message", e.getMessage()));
         } catch (JwtException e) {
@@ -147,21 +147,30 @@ public class MultiplayerSocket extends TextWebSocketHandler {
 
     public void broadcastToRoom(RaceRoom room, long serverTime) {
         if (room == null || room.id == null) return;
-        try {
-            Map<String, Object> payload = Map.of("type", "STATE", "room", room, "serverTime", serverTime);
-            TextMessage stateMsg = new TextMessage(json.writeValueAsString(payload));
-            for (Client client : clients.values()) {
-                if (client.user != null) {
-                    boolean isMatchingRoom = room.id.equals(client.room);
-                    boolean isPlayerInRoom = room.players.stream().anyMatch(p -> p.id == client.user);
-                    if (isMatchingRoom || isPlayerInRoom) {
-                        if (client.room == null) client.room = room.id;
-                        sendDirect(client, stateMsg);
+        broadcastExecutor.submit(() -> {
+            try {
+                Map<String, Object> payload = Map.of("type", "STATE", "room", room, "serverTime", serverTime);
+                TextMessage stateMsg = new TextMessage(json.writeValueAsString(payload));
+                for (Client client : clients.values()) {
+                    if (client.user != null) {
+                        boolean isMatchingRoom = room.id.equals(client.room);
+                        boolean isPlayerInRoom = room.players.stream().anyMatch(p -> p.id == client.user);
+                        if (isMatchingRoom || isPlayerInRoom) {
+                            if (client.room == null) client.room = room.id;
+                            sendDirect(client, stateMsg);
+                        }
                     }
                 }
+            } catch (Exception e) {
+                log.debug("Failed to broadcast payload for room {}: {}", room.id, e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("Failed to serialize broadcast payload: {}", e.getMessage());
+        });
+    }
+
+    @org.springframework.context.event.EventListener
+    public void onRoomUpdated(RoomUpdatedEvent event) {
+        if (event != null && event.room() != null) {
+            broadcastToRoom(event.room(), System.currentTimeMillis());
         }
     }
 
@@ -201,7 +210,10 @@ public class MultiplayerSocket extends TextWebSocketHandler {
                     }
                 }
             } catch (Exception e) {
-                try { c.socket.close(CloseStatus.SERVER_ERROR); } catch (Exception ignored) { clients.remove(c.socket.getId()); }
+                log.debug("Publish tick frame send bypassed for client {}: {}", c.user, e.getMessage());
+                if (c.socket == null || !c.socket.isOpen()) {
+                    clients.remove(c.socket != null ? c.socket.getId() : "");
+                }
             }
         }
     }

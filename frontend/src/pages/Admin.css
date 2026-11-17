@@ -323,7 +323,7 @@
 .adm-access-label,.adm-breadcrumb,.adm-section-intro,.adm-eyebrow { color:var(--t3); }
 .adm-main { overflow:clip; }
 
-[data-theme="dark"] .adm-button--primary { color:#101b30; }
+[data-theme="dark"] .adm-button--primary { color:#ffffff !important; }
 
 /* ── Platform Administrator Maintainer Profile Card ── */
 .adm-maintainer-card {
@@ -591,5 +591,331 @@
   flex: 1;
   justify-content: center;
   font-size: 0.82rem;
+}
+
+/* ==============================================================================
+   AWS CONSOLE DEEP DARK THEME OVERRIDES FOR ADMIN SHELL
+   ============================================================================== */
+[data-theme='dark'] .admin-shell {
+  --adm-ink: #f2f4f8;
+  --adm-muted: #879596;
+  --adm-line: #1e2634;
+  --adm-blue: #4d82f3;
+  color: #f2f4f8 !important;
+  background: #0f141c !important;
+}
+
+[data-theme='dark'] .adm-sidebar {
+  background: #0f141c !important;
+  border-right: 1px solid #1e2634 !important;
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-brand-mark {
+  background: #131822 !important;
+  border: 1px solid #1e2634 !important;
+  color: #4d82f3 !important;
+}
+
+[data-theme='dark'] .adm-workspace {
+  background: #131822 !important;
+  border: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-workspace-icon {
+  background: #0f141c !important;
+  color: #4d82f3 !important;
+}
+
+[data-theme='dark'] .adm-workspace strong {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-workspace div>span {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-nav-label {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-nav-link {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-nav-link:hover {
+  background: #1e293b !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .adm-nav-link.is-active {
+  background: #1e2634 !important;
+  color: #ffffff !important;
+  box-shadow: inset 3px 0 #4d82f3 !important;
+}
+
+[data-theme='dark'] .adm-nav-link b {
+  background: #0f141c !important;
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-note {
+  border-top: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-note strong {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-note p {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-note a {
+  color: #4d82f3 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-profile {
+  border-top: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-profile strong {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-profile div>span {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-sidebar-profile .adm-avatar {
+  background: #131822 !important;
+  color: #4d82f3 !important;
+  border: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-topbar {
+  background: #0f141c !important;
+  border-bottom: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-breadcrumb {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-breadcrumb strong {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-access-label {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-topbar-avatar {
+  background: #131822 !important;
+  border-color: #1e2634 !important;
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-page-heading h1 {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-panel,
+[data-theme='dark'] .adm-metric,
+[data-theme='dark'] .adm-metric-card,
+[data-theme='dark'] .adm-template-card {
+  background: #131822 !important;
+  border: 1px solid #1e2634 !important;
+  border-top: 1px solid #253042 !important;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-theme='dark'] .adm-panel-heading {
+  background: #131822 !important;
+  border-bottom: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-panel-heading h2 {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-panel-heading p {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-metric>strong,
+[data-theme='dark'] .adm-metric-value {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-metric-top,
+[data-theme='dark'] .adm-metric-label,
+[data-theme='dark'] .adm-metric-sub {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-table thead {
+  background: #131822 !important;
+}
+
+[data-theme='dark'] .adm-table th {
+  background: #131822 !important;
+  color: #879596 !important;
+  border-bottom: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-table td {
+  color: #f2f4f8 !important;
+  border-bottom: 1px solid #1f2838 !important;
+}
+
+[data-theme='dark'] .adm-table tbody tr:hover td {
+  background: #1c2638 !important;
+}
+
+[data-theme='dark'] .adm-toolbar {
+  background: #131822 !important;
+  border-bottom: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-search,
+[data-theme='dark'] .admin-shell :is(input, select, textarea) {
+  background: #0f141c !important;
+  border: 1px solid #354358 !important;
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .admin-shell :is(input, select, textarea):focus {
+  background: #131822 !important;
+  border-color: #4d82f3 !important;
+  box-shadow: 0 0 0 2px rgba(77, 130, 243, 0.35) !important;
+}
+
+[data-theme='dark'] .adm-button {
+  background: #131822 !important;
+  border: 1px solid #354358 !important;
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-button:hover:not(:disabled) {
+  background: #1e293b !important;
+  border-color: #4d82f3 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .adm-button--primary {
+  background: #4d82f3 !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .adm-button--primary:hover:not(:disabled) {
+  background: #356de6 !important;
+  border-color: #356de6 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .adm-icon-button {
+  background: #131822 !important;
+  border: 1px solid #354358 !important;
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-icon-button:hover {
+  background: #1e293b !important;
+  color: #ffffff !important;
+  border-color: #4d82f3 !important;
+}
+
+[data-theme='dark'] .adm-text-link {
+  color: #4d82f3 !important;
+}
+
+[data-theme='dark'] .adm-dialog,
+[data-theme='dark'] .adm-dialog-inner {
+  background: #131822 !important;
+  border: 1px solid #253042 !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75) !important;
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-dialog-header {
+  background: #131822 !important;
+  border-bottom: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-system-banner {
+  background: #131822 !important;
+  border: 1px solid #1e2634 !important;
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-maintainer-card {
+  background: #131822 !important;
+  border: 1px solid #1e2634 !important;
+  border-top: 1px solid #253042 !important;
+}
+
+[data-theme='dark'] .adm-maintainer-meta-grid {
+  background: #0f141c !important;
+  border: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-card-code-preview {
+  background: #0e1b2e !important;
+  border: 1px solid #1c3254 !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-theme='dark'] .adm-card-code-preview pre {
+  color: #93c5fd !important;
+}
+
+[data-theme='dark'] .adm-card-title {
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-card-desc {
+  color: #c2ccd6 !important;
+}
+
+[data-theme='dark'] .adm-card-meta {
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-community-stats {
+  border-top: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-community-stats>div+div {
+  border-left: 1px solid #1e2634 !important;
+}
+
+[data-theme='dark'] .adm-filter-tabs button {
+  background: #131822 !important;
+  border: 1px solid #354358 !important;
+  color: #879596 !important;
+}
+
+[data-theme='dark'] .adm-filter-tabs button:hover {
+  background: #1e293b !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .adm-filter-tabs button.is-active {
+  background: #1e2634 !important;
+  border-color: #4d82f3 !important;
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .adm-pagination button {
+  background: #131822 !important;
+  border: 1px solid #354358 !important;
+  color: #f2f4f8 !important;
+}
+
+[data-theme='dark'] .adm-pagination button:hover:not(:disabled) {
+  background: #1e293b !important;
+  border-color: #4d82f3 !important;
 }
 

@@ -15,12 +15,10 @@ import {
   Layers,
   ChevronRight,
   BookOpen,
-  Eye,
   ShieldCheck,
   Target,
   MoreHorizontal,
   Play,
-  EyeOff,
   Flame
 } from 'lucide-react';
 import srsService from '../services/srsService';
@@ -39,7 +37,7 @@ export default function Revision() {
   const loadDeck = useCallback(async () => {
     try {
       const data = await srsService.getDeck();
-      if (data && Array.isArray(data) && data.length > 0) {
+      if (data && Array.isArray(data)) {
         setDeck(data);
         dataCache.setDeck(user?.id, data);
       }
@@ -55,7 +53,7 @@ export default function Revision() {
     const handleSrsUpdate = () => loadDeck();
     const handleCacheRevalidated = () => {
       const cached = dataCache.getDeck(user?.id);
-      if (cached && Array.isArray(cached) && cached.length > 0) {
+      if (cached && Array.isArray(cached)) {
         setDeck(cached);
       }
     };
@@ -110,10 +108,15 @@ export default function Revision() {
     });
   }, [deck, activeTab, searchQuery]);
 
-  const handleStartPractice = (card, mode = 'cloze') => {
+  const handleStartPractice = (card) => {
     const id = card.snippetId || card.id;
     const lang = card.language || 'C++';
-    navigate(`/practice?snippet=${id}&lang=${encodeURIComponent(lang)}&mode=${mode}`);
+    navigate(`/practice?snippet=${encodeURIComponent(id)}&lang=${encodeURIComponent(lang)}`);
+  };
+
+  const handleViewTheory = (card) => {
+    const target = card.slug || card.snippetId || card.id;
+    navigate(`/theory/${encodeURIComponent(target)}`);
   };
 
   // Retention index computation based on average ease factors, repetitions, and mastery
@@ -243,46 +246,35 @@ export default function Revision() {
         </div>
       </div>
 
-      {/* ── 3-Tier Recall Modes Spotlight ── */}
+      {/* ── Dual Practice & Theory Modes Spotlight ── */}
       <div className="card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <Sparkles size={16} color="var(--brand)" />
           <h3 style={{ fontSize: '0.98rem', fontWeight: 800, color: 'var(--t1)', margin: 0 }}>
-            3-Tier Memory Recall System
+            Structured Recall Workflow: Practice &amp; Theory
           </h3>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-          <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--glass-border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span className="badge badge-teal" style={{ fontSize: '0.68rem' }}>Tier 1</span>
-              <Play size={13} color="var(--brand)" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+          <div style={{ padding: 16, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span className="badge badge-teal" style={{ fontSize: '0.68rem' }}>Option 1 &bull; Typing Drills</span>
+              <Play size={14} color="var(--brand)" />
             </div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Standard Copy</div>
-            <p style={{ fontSize: '0.76rem', color: 'var(--t3)', margin: 0, lineHeight: 1.45 }}>
-              Full syntax visible with live keystroke highlights. Focus on finger dexterity and syntax cadences.
+            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Hands-On Code Practice</div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--t3)', margin: 0, lineHeight: 1.5 }}>
+              Type the exact blueprint with real-time error detection, WPM tracking, and auto-indent to ingrain muscle memory and syntax cadences.
             </p>
           </div>
 
-          <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--brand)', position: 'relative' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span className="badge badge-teal" style={{ fontSize: '0.68rem', background: 'var(--brand)', color: '#fff' }}>Tier 2 &bull; Recommended</span>
-              <Eye size={13} color="var(--brand)" />
+          <div style={{ padding: 16, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--glass-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span className="badge badge-cobalt" style={{ fontSize: '0.68rem' }}>Option 2 &bull; Conceptual Study</span>
+              <BookOpen size={14} color="#3B82F6" />
             </div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Cloze Recall (Word Blanks)</div>
-            <p style={{ fontSize: '0.76rem', color: 'var(--t3)', margin: 0, lineHeight: 1.45 }}>
-              Every 10 lines of code, 2 key identifiers are blanked out. Tests targeted recall. Hit <kbd style={{ padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.1)', fontSize: '0.7rem' }}>F1</kbd> for subtle hints.
-            </p>
-          </div>
-
-          <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--glass-border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span className="badge badge-rose" style={{ fontSize: '0.68rem' }}>Tier 3</span>
-              <EyeOff size={13} color="#E11D48" />
-            </div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Blind Mode (Scaffold Recall)</div>
-            <p style={{ fontSize: '0.76rem', color: 'var(--t3)', margin: 0, lineHeight: 1.45 }}>
-              Signatures, comments, and structure remain visible while implementation code is masked. Reconstruct algorithmic solutions from memory.
+            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>Algorithmic Theory &amp; Architecture</div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--t3)', margin: 0, lineHeight: 1.5 }}>
+              Explore comprehensive mathematical formulas, asymptotic proofs, invariant properties, and architecture diagrams for each pattern.
             </p>
           </div>
         </div>
@@ -307,16 +299,36 @@ export default function Revision() {
 
           {dueCards.length > 0 && (
             <button
-              onClick={() => handleStartPractice(dueCards[0], 'cloze')}
+              onClick={() => handleStartPractice(dueCards[0])}
               className="btn btn-primary btn-sm"
             >
               <Sparkles size={13} />
-              <span>Review Due Cards Now</span>
+              <span>Practice Due Cards Now</span>
             </button>
           )}
         </div>
 
-        {dueCards.length === 0 ? (
+        {deck.length === 0 ? (
+          <div style={{ padding: '36px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 10 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.25)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Brain size={24} />
+            </div>
+            <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--t1)', margin: 0 }}>
+              No Reviews Scheduled Yet
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--t3)', maxWidth: 460, margin: 0, lineHeight: 1.5 }}>
+              You haven't practiced any templates yet. Complete coding practice drills to automatically schedule algorithmic patterns to your review queue.
+            </p>
+            <button
+              onClick={() => navigate('/practice')}
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: 6 }}
+            >
+              <Zap size={13} />
+              <span>Go to Practice Mode</span>
+            </button>
+          </div>
+        ) : dueCards.length === 0 ? (
           <div style={{ padding: '36px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 10 }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.25)', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CheckCircle2 size={24} />
@@ -378,27 +390,20 @@ export default function Revision() {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
                     <button
-                      onClick={() => handleStartPractice(card, 'cloze')}
+                      onClick={() => handleStartPractice(card)}
                       className="btn btn-primary btn-sm"
-                      style={{ flex: 1.2, justifyContent: 'center', height: 32 }}
+                      style={{ flex: 1, justifyContent: 'center', height: 32 }}
                     >
-                      <Eye size={12} />
-                      <span>Cloze Drill</span>
+                      <Play size={13} fill="currentColor" strokeWidth={0} />
+                      <span>Practice</span>
                     </button>
                     <button
-                      onClick={() => handleStartPractice(card, 'blind')}
+                      onClick={() => handleViewTheory(card)}
                       className="btn btn-secondary-glass btn-sm"
                       style={{ flex: 1, justifyContent: 'center', height: 32 }}
                     >
-                      <EyeOff size={12} />
-                      <span>Blind</span>
-                    </button>
-                    <button
-                      onClick={() => handleStartPractice(card, 'copy')}
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: '0 10px', height: 32 }}
-                    >
-                      <span>Copy</span>
+                      <BookOpen size={13} />
+                      <span>View Theory</span>
                     </button>
                   </div>
                 </div>
@@ -455,7 +460,27 @@ export default function Revision() {
         </div>
 
         {/* Master Deck List */}
-        {filteredCards.length === 0 ? (
+        {deck.length === 0 ? (
+          <div style={{ padding: '36px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 10 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.25)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Layers size={24} />
+            </div>
+            <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--t1)', margin: 0 }}>
+              Your Master Deck is Empty
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--t3)', maxWidth: 460, margin: 0, lineHeight: 1.5 }}>
+              Your spaced repetition deck is built automatically when you complete coding templates in Practice Mode.
+            </p>
+            <button
+              onClick={() => navigate('/practice')}
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: 6 }}
+            >
+              <Zap size={13} />
+              <span>Start First Practice Session</span>
+            </button>
+          </div>
+        ) : filteredCards.length === 0 ? (
           <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--t3)', fontSize: '0.84rem' }}>
             No cards found matching your query.
           </div>
@@ -510,31 +535,22 @@ export default function Revision() {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <button
-                      onClick={() => handleStartPractice(card, 'cloze')}
-                      className="btn btn-secondary-glass btn-sm"
-                      style={{ height: 30 }}
-                      title="Practice with word cloze blanks"
-                    >
-                      <Eye size={12} />
-                      <span>Cloze</span>
-                    </button>
-                    <button
-                      onClick={() => handleStartPractice(card, 'blind')}
-                      className="btn btn-secondary-glass btn-sm"
-                      style={{ height: 30 }}
-                      title="Practice blind scaffold recall"
-                    >
-                      <EyeOff size={12} />
-                      <span>Blind</span>
-                    </button>
-                    <button
-                      onClick={() => handleStartPractice(card, 'copy')}
+                      onClick={() => handleStartPractice(card)}
                       className="btn btn-primary btn-sm"
                       style={{ height: 30 }}
-                      title="Standard practice"
+                      title="Practice this blueprint in Practice Mode"
                     >
                       <Play size={11} fill="currentColor" strokeWidth={0} />
-                      <span>Review</span>
+                      <span>Practice</span>
+                    </button>
+                    <button
+                      onClick={() => handleViewTheory(card)}
+                      className="btn btn-secondary-glass btn-sm"
+                      style={{ height: 30 }}
+                      title="View algorithm theory, invariants, and architecture"
+                    >
+                      <BookOpen size={12} />
+                      <span>View Theory</span>
                     </button>
                   </div>
                 </div>

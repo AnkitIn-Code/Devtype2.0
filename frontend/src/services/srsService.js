@@ -4,92 +4,66 @@ import { calculateNextSrsReview, isCardDue } from '../utils/srsEngine';
 
 const LOCAL_SRS_KEY = 'devtype_srs_deck';
 
-const DEFAULT_DECK = [
-  {
-    id: 1,
-    snippetId: 'cpp-fast-io',
-    title: 'Fast Competitive I/O & Stream Synchronization',
-    language: 'C++',
-    repetition: 0,
-    easeFactor: 2.50,
-    intervalDays: 1,
-    isMastered: false,
-    dueDate: new Date().toISOString(),
-    lastReviewedAt: null,
-    lastQualityScore: 0,
-    category: 'C++ Foundations',
-  },
-  {
-    id: 2,
-    snippetId: 'cp-min-stack',
-    title: 'Stack Modification: Minimum Stack in O(1)',
-    language: 'C++',
-    repetition: 1,
-    easeFactor: 2.60,
-    intervalDays: 3,
-    isMastered: false,
-    dueDate: new Date(Date.now() - 3600000).toISOString(),
-    lastReviewedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-    lastQualityScore: 4,
-    category: 'Competitive Algorithms',
-  },
-  {
-    id: 3,
-    snippetId: 'merge-sort',
-    title: 'Merge Sort: Divide & Conquer Recursion',
-    language: 'C++',
-    repetition: 0,
-    easeFactor: 2.50,
-    intervalDays: 1,
-    isMastered: false,
-    dueDate: new Date(Date.now() - 1800000).toISOString(),
-    lastReviewedAt: null,
-    lastQualityScore: 0,
-    category: 'Algorithms & DSA',
-  },
-  {
-    id: 4,
-    snippetId: 'binary-search-cpp',
-    title: 'Binary Search Algorithm',
-    language: 'C++',
-    repetition: 4,
-    easeFactor: 2.70,
-    intervalDays: null,
-    isMastered: true,
-    dueDate: null,
-    lastReviewedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    lastQualityScore: 5,
-    category: 'Algorithms & DSA',
-  },
-  {
-    id: 5,
-    snippetId: 'cp-fenwick-tree',
-    title: 'Fenwick Tree: Point Updates & Range Sums',
-    language: 'C++',
-    repetition: 2,
-    easeFactor: 2.50,
-    intervalDays: 8,
-    isMastered: false,
-    dueDate: new Date(Date.now() + 86400000 * 4).toISOString(),
-    lastReviewedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-    lastQualityScore: 4,
-    category: 'Competitive Algorithms',
-  },
-  {
-    id: 6,
-    snippetId: 'lru-cache-cpp',
-    title: 'LRU Cache: Hash Table & Doubly Linked List',
-    language: 'C++',
-    repetition: 3,
-    easeFactor: 2.60,
-    intervalDays: 15,
-    isMastered: false,
-    dueDate: new Date(Date.now() + 86400000 * 9).toISOString(),
-    lastReviewedAt: new Date(Date.now() - 86400000 * 6).toISOString(),
-    lastQualityScore: 5,
-    category: 'Data Structures',
-  },
-];
+// Legacy mock template IDs and titles that were previously bundled in development builds
+const LEGACY_MOCK_IDS = new Set([
+  'cpp-fast-io',
+  'cp-min-stack',
+  'merge-sort',
+  'binary-search-cpp',
+  'cp-fenwick-tree',
+  'lru-cache-cpp',
+  'two-sum-cpp',
+  'react-use-effect',
+]);
+
+const LEGACY_MOCK_TITLES = new Set([
+  'Fast Competitive I/O & Stream Synchronization',
+  'Stack Modification: Minimum Stack in O(1)',
+  'Merge Sort: Divide & Conquer Recursion',
+  'Binary Search Algorithm',
+  'Fenwick Tree: Point Updates & Range Sums',
+  'LRU Cache: Hash Table & Doubly Linked List',
+]);
+
+export function cleanLegacyMockData() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const keysToClean = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('devtype_srs_deck') || key.startsWith('devtype_cache_srs'))) {
+        keysToClean.push(key);
+      }
+    }
+
+    for (const key of keysToClean) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((c) => {
+            const id = String(c?.snippetId || c?.id || '');
+            const title = String(c?.title || '');
+            const isMock = LEGACY_MOCK_IDS.has(id) || LEGACY_MOCK_TITLES.has(title);
+            if (isMock && !c?.hasRealPractice && !c?.lastPracticedSessionId) {
+              return false;
+            }
+            return true;
+          });
+          if (cleaned.length === 0) {
+            localStorage.removeItem(key);
+          } else if (cleaned.length !== parsed.length) {
+            localStorage.setItem(key, JSON.stringify(cleaned));
+          }
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+// Automatically sanitize legacy mock data from browser storage on load
+cleanLegacyMockData();
 
 function getActiveUserId() {
   try {
@@ -112,17 +86,29 @@ function getLocalDeck() {
     const key = getLocalSrsKey();
     const raw = localStorage.getItem(key);
     if (!raw) {
-      localStorage.setItem(key, JSON.stringify(DEFAULT_DECK));
-      return DEFAULT_DECK;
+      return [];
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed;
+      // Purge any legacy dummy mock cards that were never practiced by the user
+      const cleaned = parsed.filter((c) => {
+        const id = String(c?.snippetId || c?.id || '');
+        const title = String(c?.title || '');
+        const isMock = LEGACY_MOCK_IDS.has(id) || LEGACY_MOCK_TITLES.has(title);
+        if (isMock && !c?.hasRealPractice && !c?.lastPracticedSessionId) {
+          return false;
+        }
+        return true;
+      });
+      if (cleaned.length !== parsed.length) {
+        saveLocalDeck(cleaned);
+      }
+      return cleaned;
     }
-    return DEFAULT_DECK;
+    return [];
   } catch (err) {
     console.error('Failed to read local SRS deck:', err);
-    return DEFAULT_DECK;
+    return [];
   }
 }
 

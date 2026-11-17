@@ -1,11 +1,11 @@
 // src/services/dataCache.js
-import { dashboardService } from './dashboardService';
-import { practiceService } from './practiceService';
-import { templateService } from './templateService';
-import { srsService } from './srsService';
-import { achievementService } from './achievementService';
-import { leaderboardService } from './leaderboardService';
-import { apiFetch } from './api';
+import { dashboardService } from './dashboardService.js';
+import { practiceService } from './practiceService.js';
+import { templateService } from './templateService.js';
+import { srsService } from './srsService.js';
+import { achievementService } from './achievementService.js';
+import { leaderboardService } from './leaderboardService.js';
+import { apiFetch } from './api.js';
 
 const MEM_CACHE = {
   dashboard: new Map(),
@@ -22,7 +22,7 @@ const MEM_CACHE = {
 
 function safeStorageGet(key) {
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = sessionStorage.getItem(key) || localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -32,9 +32,12 @@ function safeStorageGet(key) {
 function safeStorageSet(key, val) {
   try {
     if (val !== undefined && val !== null) {
-      sessionStorage.setItem(key, JSON.stringify(val));
+      const serialized = JSON.stringify(val);
+      sessionStorage.setItem(key, serialized);
+      localStorage.setItem(key, serialized);
     } else {
       sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
     }
   } catch {}
 }
@@ -110,6 +113,28 @@ export const dataCache = {
     if (MEM_CACHE.srsDue.has(uid)) return MEM_CACHE.srsDue.get(uid);
     const stored = safeStorageGet(`devtype_cache_srsdue_${uid}`);
     if (stored) {
+      if (Array.isArray(stored)) {
+        const mockIds = new Set(['cpp-fast-io', 'cp-min-stack', 'merge-sort', 'binary-search-cpp', 'cp-fenwick-tree', 'lru-cache-cpp', 'two-sum-cpp', 'react-use-effect']);
+        const mockTitles = new Set([
+          'Fast Competitive I/O & Stream Synchronization',
+          'Stack Modification: Minimum Stack in O(1)',
+          'Merge Sort: Divide & Conquer Recursion',
+          'Binary Search Algorithm',
+          'Fenwick Tree: Point Updates & Range Sums',
+          'LRU Cache: Hash Table & Doubly Linked List',
+        ]);
+        const cleaned = stored.filter(c => {
+          const id = String(c?.snippetId || c?.id || '');
+          const title = String(c?.title || '');
+          const isMock = mockIds.has(id) || mockTitles.has(title);
+          return !isMock || c?.hasRealPractice || c?.lastPracticedSessionId;
+        });
+        if (cleaned.length !== stored.length) {
+          safeStorageSet(`devtype_cache_srsdue_${uid}`, cleaned);
+        }
+        MEM_CACHE.srsDue.set(uid, cleaned);
+        return cleaned;
+      }
       MEM_CACHE.srsDue.set(uid, stored);
       return stored;
     }
@@ -129,6 +154,28 @@ export const dataCache = {
     if (MEM_CACHE.srsDeck.has(uid)) return MEM_CACHE.srsDeck.get(uid);
     const stored = safeStorageGet(`devtype_cache_srsdeck_${uid}`);
     if (stored) {
+      if (Array.isArray(stored)) {
+        const mockIds = new Set(['cpp-fast-io', 'cp-min-stack', 'merge-sort', 'binary-search-cpp', 'cp-fenwick-tree', 'lru-cache-cpp', 'two-sum-cpp', 'react-use-effect']);
+        const mockTitles = new Set([
+          'Fast Competitive I/O & Stream Synchronization',
+          'Stack Modification: Minimum Stack in O(1)',
+          'Merge Sort: Divide & Conquer Recursion',
+          'Binary Search Algorithm',
+          'Fenwick Tree: Point Updates & Range Sums',
+          'LRU Cache: Hash Table & Doubly Linked List',
+        ]);
+        const cleaned = stored.filter(c => {
+          const id = String(c?.snippetId || c?.id || '');
+          const title = String(c?.title || '');
+          const isMock = mockIds.has(id) || mockTitles.has(title);
+          return !isMock || c?.hasRealPractice || c?.lastPracticedSessionId;
+        });
+        if (cleaned.length !== stored.length) {
+          safeStorageSet(`devtype_cache_srsdeck_${uid}`, cleaned);
+        }
+        MEM_CACHE.srsDeck.set(uid, cleaned);
+        return cleaned;
+      }
       MEM_CACHE.srsDeck.set(uid, stored);
       return stored;
     }
@@ -239,8 +286,69 @@ export const dataCache = {
     }
   },
 
+  // ── Admin Query Caching ──
+  getAdminData(key) {
+    if (MEM_CACHE[`admin_${key}`]) {
+      return MEM_CACHE[`admin_${key}`];
+    }
+    const fromStorage = safeStorageGet(`devtype_cache_admin_${key}`);
+    if (fromStorage) {
+      MEM_CACHE[`admin_${key}`] = fromStorage;
+      return fromStorage;
+    }
+    return null;
+  },
+
+  setAdminData(key, data) {
+    if (data) {
+      MEM_CACHE[`admin_${key}`] = data;
+      safeStorageSet(`devtype_cache_admin_${key}`, data);
+    }
+  },
+
+  async prefetchAdmin() {
+    try {
+      const [{ adminService }, { snippetService }] = await Promise.all([
+        import('./adminService'),
+        import('./snippetService'),
+      ]);
+      return Promise.allSettled([
+        adminService.getOverview().then((data) => {
+          if (data) {
+            this.setAdminData('overview', data);
+            this.setAdminData('getOverview', data);
+          }
+        }),
+        adminService.getMetricsSummary().then((data) => {
+          if (data) {
+            this.setAdminData('metrics', data);
+            this.setAdminData('getMetricsSummary', data);
+          }
+        }),
+        adminService.getUsers({ role: 'USER', size: 10, page: 0 }).then((data) => {
+          if (data) this.setAdminData('users', data);
+        }),
+        adminService.getReports({ page: 0, size: 10 }).then((data) => {
+          if (data) this.setAdminData('reports', data);
+        }),
+        adminService.getAuditLogs({ size: 15 }).then((data) => {
+          if (data) {
+            this.setAdminData('audit', data);
+            this.setAdminData('getAuditLogs', data);
+          }
+        }),
+        snippetService.getAllSnippets().then((data) => {
+          if (data) {
+            this.setAdminData('templates', data);
+            this.setTemplates(data);
+          }
+        }),
+      ]);
+    } catch {}
+  },
+
   // ── Eager Background Prefetch Engine ──
-  async prefetchAll(userId) {
+  async prefetchAll(userId, userObj) {
     if (!userId) return;
 
     const pDash = dashboardService
@@ -344,6 +452,56 @@ export const dataCache = {
       })
       .catch(() => null);
 
+    const isAdmin = userObj?.role === 'ROLE_ADMIN' || userObj?.role === 'ADMIN' || userObj?.isAdmin;
+    const pAdmin = isAdmin
+      ? Promise.all([
+          import('./adminService'),
+          import('./snippetService'),
+        ]).then(([{ adminService }, { snippetService }]) => {
+          return Promise.allSettled([
+            adminService.getOverview().then((data) => {
+              if (data) {
+                this.setAdminData('overview', data);
+                this.setAdminData('getOverview', data);
+              }
+            }),
+            adminService.getMetricsSummary().then((data) => {
+              if (data) {
+                this.setAdminData('metrics', data);
+                this.setAdminData('getMetricsSummary', data);
+              }
+            }),
+            adminService.getUsers({ role: 'USER', size: 10, page: 0 }).then((data) => {
+              if (data) {
+                this.setAdminData('users', data);
+              }
+            }),
+            adminService.getReports({ page: 0, size: 10 }).then((data) => {
+              if (data) {
+                this.setAdminData('reports', data);
+              }
+            }),
+            adminService.getAuditLogs({ size: 15 }).then((data) => {
+              if (data) {
+                this.setAdminData('audit', data);
+                this.setAdminData('getAuditLogs', data);
+              }
+            }),
+            adminService.getAuditLogs({ size: 5 }).then((data) => {
+              if (data) {
+                this.setAdminData('overview_audit', data);
+              }
+            }),
+            snippetService.getAllSnippets().then((data) => {
+              if (data) {
+                this.setAdminData('templates', data);
+                this.setTemplates(data);
+              }
+            }),
+          ]);
+        }).catch(() => null)
+      : Promise.resolve(null);
+
     await Promise.allSettled([
       pDash,
       pSess,
@@ -355,6 +513,7 @@ export const dataCache = {
       pSeason,
       pMyRank,
       pTiers,
+      pAdmin,
     ]);
 
     if (typeof window !== 'undefined') {
@@ -372,15 +531,24 @@ export const dataCache = {
     MEM_CACHE.leaderboard.clear();
     MEM_CACHE.myRank.delete(uid);
     try {
-      sessionStorage.removeItem(`devtype_cache_dash_${uid}`);
-      sessionStorage.removeItem(`devtype_cache_sess_${uid}`);
-      sessionStorage.removeItem(`devtype_cache_srsdue_${uid}`);
-      sessionStorage.removeItem(`devtype_cache_srsdeck_${uid}`);
-      sessionStorage.removeItem(`devtype_cache_ach_${uid}`);
-      sessionStorage.removeItem(`devtype_cache_lb_all`);
-      sessionStorage.removeItem(`devtype_cache_season_info`);
-      sessionStorage.removeItem(`devtype_cache_myrank_${uid}`);
-      sessionStorage.removeItem(`devtype_cache_tier_config`);
+      const keys = [
+        `devtype_cache_dash_${uid}`,
+        `devtype_cache_sess_${uid}`,
+        `devtype_cache_srsdue_${uid}`,
+        `devtype_cache_srsdeck_${uid}`,
+        `devtype_cache_ach_${uid}`,
+        `devtype_cache_lb_all`,
+        `devtype_cache_season_info`,
+        `devtype_cache_myrank_${uid}`,
+        `devtype_cache_tier_config`,
+      ];
+      keys.forEach((k) => {
+        sessionStorage.removeItem(k);
+        localStorage.removeItem(k);
+      });
     } catch {}
   },
 };
+
+export default dataCache;
+

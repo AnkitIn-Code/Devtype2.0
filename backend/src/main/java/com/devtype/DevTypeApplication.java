@@ -2,12 +2,14 @@ package com.devtype;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.web.config.EnableSpringDataWebSupport;
 
 /**
  * DevType Application Entry Point.
  * Multi-user code typing platform modular monolith.
  */
 @SpringBootApplication
+@EnableSpringDataWebSupport(pageSerializationMode = EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
 public class DevTypeApplication {
 
     public static void main(String[] args) {

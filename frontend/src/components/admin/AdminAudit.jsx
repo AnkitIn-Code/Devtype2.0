@@ -9,7 +9,7 @@ export default function AdminAudit({ refreshKey }) {
   const [filters, setFilters] = useState({ actionType: '', targetType: '', page: 0 });
   const [selected, setSelected] = useState(null);
   const fetchLogs = useCallback(() => adminService.getAuditLogs({ ...filters, size: 15 }), [filters]);
-  const query = useAdminQuery(fetchLogs, refreshKey);
+  const query = useAdminQuery(fetchLogs, refreshKey, (!filters.page && !filters.actionType && !filters.targetType) ? 'audit' : null);
   const update = (key, value) => setFilters(previous => ({ ...previous, [key]: value, page: 0 }));
   return <>
     <div className="adm-info adm-audit-info"><LockKeyhole size={18} /><div><strong>Administrative accountability</strong><p>Review who changed what, when it happened, and the reason recorded. This view is read-only.</p></div></div>

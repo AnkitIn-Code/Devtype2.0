@@ -28,18 +28,23 @@ public class MultiplayerService {
     private final RankedSeasonRepository seasons;
     private final UserSeasonRatingRepository ratings;
     private final BgmiTierService tiers;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
     private final SecureRandom random = new SecureRandom();
     @Value("${devtype.multiplayer.queue-timeout-seconds:120}") private long queueTimeout = 120;
     @Value("${devtype.multiplayer.max-characters-per-second:40}") private int maxCharactersPerSecond = 40;
     @Value("${devtype.multiplayer.reconnect-seconds:30}") private long reconnect = 30;
     private final Map<String, RaceRoom> activeRooms = new ConcurrentHashMap<>();
     private final Map<Long, String> userRooms = new ConcurrentHashMap<>();
+    private final List<PracticeTemplate> templateCache = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final Set<Long> bugTaskTemplateIds = ConcurrentHashMap.newKeySet();
     private final java.util.concurrent.ExecutorService asyncDbExecutor = java.util.concurrent.Executors.newFixedThreadPool(4);
     private final Object lifecycleLock = new Object();
 
     public MultiplayerService(JdbcTemplate db, ObjectMapper json, UserRepository users, PracticeTemplateRepository templates,
-                              RankedSeasonRepository seasons, UserSeasonRatingRepository ratings, BgmiTierService tiers) {
+                              RankedSeasonRepository seasons, UserSeasonRatingRepository ratings, BgmiTierService tiers,
+                              org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.db=db; this.json=json; this.users=users; this.templates=templates; this.seasons=seasons; this.ratings=ratings; this.tiers=tiers;
+        this.eventPublisher = eventPublisher;
     }
 
     @jakarta.annotation.PostConstruct
@@ -58,6 +63,21 @@ public class MultiplayerService {
             }
         } catch (Exception e) {
             log.warn("Auto-population of predefined templates skipped: {}", e.getMessage());
+        }
+        refreshTemplateCache();
+    }
+
+    public void refreshTemplateCache() {
+        try {
+            List<PracticeTemplate> all = templates.findAll();
+            templateCache.clear();
+            templateCache.addAll(all);
+            List<Long> bugIds = db.queryForList("SELECT DISTINCT template_id FROM multiplayer_bug_tasks", Long.class);
+            bugTaskTemplateIds.clear();
+            bugTaskTemplateIds.addAll(bugIds);
+            log.info("Multiplayer template cache refreshed: {} templates, {} bug tasks", templateCache.size(), bugTaskTemplateIds.size());
+        } catch (Exception e) {
+            log.warn("Failed to populate multiplayer template cache: {}", e.getMessage());
         }
     }
 
@@ -94,6 +114,11 @@ public class MultiplayerService {
         activeRooms.put(room.id, room);
         for (RaceRoom.Player p : room.players) {
             userRooms.put(p.id, room.id);
+        }
+        if (eventPublisher != null) {
+            try {
+                eventPublisher.publishEvent(new RoomUpdatedEvent(room));
+            } catch (Exception ignored) {}
         }
         if (terminal(room)) {
             try {
@@ -153,38 +178,43 @@ public class MultiplayerService {
         return null;
     }
     public List<Map<String,Object>> catalog() {
-        Set<Long> bugTaskIds = new HashSet<>(db.queryForList("SELECT DISTINCT template_id FROM multiplayer_bug_tasks", Long.class));
-        return templates.findAll().stream().filter(PracticeTemplate::isPublished).map(t->Map.<String,Object>of(
+        if (templateCache.isEmpty()) {
+            refreshTemplateCache();
+        }
+        return templateCache.stream().filter(PracticeTemplate::isPublished).map(t->Map.<String,Object>of(
             "id", t.getId(),
             "title", t.getTitle(),
-            "language", t.getLanguage(),
+            "language", canonicalLangName(t.getLanguage()),
             "difficulty", t.getDifficulty().name(),
             "content", t.getContent() != null ? t.getContent() : "",
-            "bugFix", bugTaskIds.contains(t.getId())
+            "bugFix", bugTaskTemplateIds.contains(t.getId())
         )).toList();
     }
     public RaceRoom enter(long uid, String mode, long templateId, int capacity) {
         return enter(uid, mode, templateId, null, capacity);
     }
 
-    private static String normalizeLang(String l) {
+    public static String canonicalLangName(String l) {
         if (l == null) return "";
         String s = l.trim().toLowerCase(Locale.ROOT);
-        if (s.equals("c++") || s.equals("cpp")) return "c++";
-        if (s.equals("c")) return "c";
-        if (s.equals("javascript") || s.equals("js")) return "javascript";
-        if (s.equals("typescript") || s.equals("ts")) return "typescript";
-        if (s.equals("python") || s.equals("py")) return "python";
-        if (s.equals("java")) return "java";
-        if (s.equals("go") || s.equals("golang")) return "go";
-        if (s.equals("rust") || s.equals("rs")) return "rust";
-        if (s.equals("sql")) return "sql";
-        return s;
+        if (s.equals("c++") || s.equals("cpp") || s.equals("cplusplus")) return "C++";
+        if (s.equals("c")) return "C";
+        if (s.equals("javascript") || s.equals("js")) return "JavaScript";
+        if (s.equals("typescript") || s.equals("ts")) return "TypeScript";
+        if (s.equals("python") || s.equals("py")) return "Python";
+        if (s.equals("java")) return "Java";
+        if (s.equals("go") || s.equals("golang")) return "Go";
+        if (s.equals("rust") || s.equals("rs")) return "Rust";
+        if (s.equals("sql") || s.equals("postgresql") || s.equals("mysql")) return "SQL";
+        return l.isEmpty() ? "" : l.substring(0, 1).toUpperCase(Locale.ROOT) + l.substring(1);
+    }
+
+    private static String normalizeLang(String l) {
+        return canonicalLangName(l).toLowerCase(Locale.ROOT);
     }
 
     public RaceRoom enter(long uid, String mode, long templateId, String language, int capacity) {
         synchronized(lifecycleLock) {
-            lock();
             User u = user(uid);
             RaceRoom existing = current(uid);
             if (existing != null && !terminal(existing)) {
@@ -222,10 +252,9 @@ public class MultiplayerService {
             long now = System.currentTimeMillis();
 
             if (competitive || mode.equals("bug-fix")) {
-                for (String id : db.queryForList("SELECT id FROM multiplayer_rooms WHERE state='SEARCHING' ORDER BY updated_at, id", String.class)) {
-                    RaceRoom candidate = read(id);
+                for (RaceRoom candidate : activeRooms.values()) {
+                    if (!candidate.state.equals("SEARCHING") || !candidate.mode.equals(mode)) continue;
                     advance(candidate);
-                    save(candidate);
                     int tolerance = (int) Math.min(600, 100 + (now - candidate.createdAt) / 1000 * 5);
                     final int ownRating = elo;
                     boolean matchesTemplateOrLanguage = (templateId > 0 && candidate.templateId == templateId)
@@ -238,6 +267,7 @@ public class MultiplayerService {
                             && candidate.players.size() < candidate.capacity
                             && candidate.players.stream().allMatch(p -> Math.abs(p.rating - ownRating) <= tolerance)) {
                         room = candidate;
+                        save(candidate);
                         break;
                     }
                 }
@@ -246,14 +276,19 @@ public class MultiplayerService {
             if (room == null) {
                 PracticeTemplate t = null;
                 if (templateId > 0) {
-                    t = templates.findByIdAndPublishedTrue(templateId).orElse(null);
+                    t = templateCache.stream().filter(pt -> pt.getId().equals(templateId) && pt.isPublished()).findFirst().orElse(null);
+                    if (t == null) {
+                        t = templates.findByIdAndPublishedTrue(templateId).orElse(null);
+                    }
                 }
                 if (t == null) {
-                    Set<Long> bugTaskIds = new HashSet<>(db.queryForList("SELECT DISTINCT template_id FROM multiplayer_bug_tasks", Long.class));
-                    List<PracticeTemplate> published = templates.findAll().stream()
+                    if (templateCache.isEmpty()) {
+                        refreshTemplateCache();
+                    }
+                    List<PracticeTemplate> published = templateCache.stream()
                             .filter(PracticeTemplate::isPublished)
                             .filter(pt -> {
-                                boolean hasBugTask = bugTaskIds.contains(pt.getId());
+                                boolean hasBugTask = bugTaskTemplateIds.contains(pt.getId());
                                 if (mode.equals("bug-fix") && !hasBugTask) return false;
                                 if (!mode.equals("bug-fix") && hasBugTask) return false;
                                 return true;
@@ -302,7 +337,7 @@ public class MultiplayerService {
                     String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
                     for (int i = 0; i < 8; i++) code.append(alphabet.charAt(random.nextInt(alphabet.length())));
                     room.id = code.toString();
-                } while (db.queryForObject("SELECT COUNT(*) FROM multiplayer_rooms WHERE id=?", Integer.class, room.id) > 0);
+                } while (activeRooms.containsKey(room.id));
 
                 db.update("INSERT INTO multiplayer_rooms(id,state,snapshot) VALUES(?,?,?)", room.id, room.state, "{}");
             }
@@ -314,13 +349,28 @@ public class MultiplayerService {
             return room;
         }
     }
-    private void add(RaceRoom room,User u,int elo) {
-        db.update("DELETE FROM multiplayer_members WHERE user_id=?",u.getId());
-        db.update("INSERT INTO multiplayer_members(user_id,room_id) VALUES(?,?)",u.getId(),room.id);
-        RaceRoom.Player p=new RaceRoom.Player(); p.id=u.getId(); p.name=u.getDisplayName(); p.rating=elo; p.lastSeen=System.currentTimeMillis(); room.players.add(p);
+    private void add(RaceRoom room, User u, int elo) {
+        db.update("DELETE FROM multiplayer_members WHERE user_id=?", u.getId());
+        db.update("INSERT INTO multiplayer_members(user_id,room_id) VALUES(?,?)", u.getId(), room.id);
+        RaceRoom.Player p = new RaceRoom.Player();
+        p.id = u.getId();
+        p.name = u.getDisplayName();
+        p.rating = elo;
+        p.lastSeen = System.currentTimeMillis();
+        room.players.add(p);
         userRooms.put(u.getId(), room.id);
-        if(room.players.size()==room.capacity) {
-            room.state = "READY";
+        if (room.players.size() == room.capacity) {
+            if (ranked(room) || room.mode.equals("bug-fix")) {
+                long now = System.currentTimeMillis();
+                room.state = "COUNTDOWN";
+                room.startsAt = now + 4000;
+                room.deadline = room.startsAt + 180000;
+                for (RaceRoom.Player pl : room.players) {
+                    pl.ready = true;
+                }
+            } else {
+                room.state = "READY";
+            }
         }
     }
     public RaceRoom join(long uid,String code) {
@@ -423,17 +473,27 @@ public class MultiplayerService {
                 if (!r.state.equals("READY")) throw error("The room is not ready.");
                 p.ready = true;
                 p.lastSeen = now;
-                int minRequired = ranked(r) ? r.capacity : (r.mode.equals("private-room") ? 1 : 2);
-                if (r.players.size() >= minRequired && r.players.stream().allMatch(x -> x.ready)) {
+                if (r.mode.equals("private-room")) {
+                    if (r.host != uid) throw error("Only the host can start the match.");
+                    for (RaceRoom.Player pl : r.players) {
+                        pl.ready = true;
+                    }
                     r.state = "COUNTDOWN";
-                    r.startsAt = now + 5000;
+                    r.startsAt = now + 4000;
                     r.deadline = r.startsAt + 180000;
+                } else {
+                    int minRequired = ranked(r) ? r.capacity : 2;
+                    if (r.players.size() >= minRequired && r.players.stream().allMatch(x -> x.ready)) {
+                        r.state = "COUNTDOWN";
+                        r.startsAt = now + 4000;
+                        r.deadline = r.startsAt + 180000;
+                    }
                 }
             } else if (type.equals("INPUT")) {
                 if (!r.state.equals("RACING") || p.forfeited) throw error("Race input is not accepted in this state.");
                 if (sequence <= p.sequence || p.finishedAt > 0) return r;
                 if (content == null || content.length() > r.target.length() + 1000) throw error("Invalid race input.");
-                if (!r.mode.equals("bug-fix") && content.codePointCount(0, content.length()) > Math.max(1, (now - r.startsAt) * maxCharactersPerSecond / 1000))
+                if (!r.mode.equals("bug-fix") && content.codePointCount(0, content.length()) > Math.max(30, (now - r.startsAt + 1000) * maxCharactersPerSecond / 1000))
                     throw error("Submission exceeds the permitted typing rate.");
                 if (!r.mode.equals("bug-fix")) p.mistakes += RaceRules.newMistakes(r.target, p.input, content.replace("\r\n", "\n").replace('\r', '\n'));
                 p.sequence = sequence;
@@ -454,7 +514,11 @@ public class MultiplayerService {
             advance(r);
             save(r);
             return r;
+        } catch (ApiException | IllegalArgumentException e) {
+            log.debug("Event validation error in room {}: {}", cleanId, e.getMessage());
+            throw e;
         } catch (RuntimeException e) {
+            log.warn("Database or runtime transaction failure in room {}, rolling back cache: {}", cleanId, e.getMessage());
             activeRooms.remove(cleanId);
             throw e;
         }
@@ -479,6 +543,15 @@ public class MultiplayerService {
             }
         }
         if(r.state.equals("SEARCHING")&&now-r.createdAt>queueTimeout*1000) { cancel(r,"Matchmaking timed out without enough compatible players."); return; }
+        if ((ranked(r) || r.mode.equals("bug-fix")) && r.players.size() >= r.capacity && r.state.equals("READY")) {
+            long nowTs = System.currentTimeMillis();
+            r.state = "COUNTDOWN";
+            r.startsAt = nowTs + 4000;
+            r.deadline = r.startsAt + 180000;
+            for (RaceRoom.Player pl : r.players) {
+                pl.ready = true;
+            }
+        }
         // Private rooms NEVER expire while in READY state!
         if(r.state.equals("READY") && !r.mode.equals("private-room") && now-r.createdAt>600000) { cancel(r,"Room expired before all players were ready."); return; }
         if(r.state.equals("COUNTDOWN")&&now>=r.startsAt) r.state="RACING";

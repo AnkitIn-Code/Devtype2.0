@@ -17,6 +17,23 @@ import BugFixRace from '../components/multiplayer/BugFixRace';
 import PrivateRoomView from '../components/multiplayer/PrivateRoomView';
 import { getAllPredefinedTemplates } from '../data/predefinedBlueprints';
 
+import ErrorBoundary from '../components/common/ErrorBoundary';
+
+function normalizeLang(raw) {
+  if (!raw) return '';
+  const s = raw.trim().toLowerCase();
+  if (s === 'c++' || s === 'cpp') return 'C++';
+  if (s === 'c') return 'C';
+  if (s === 'javascript' || s === 'js') return 'JavaScript';
+  if (s === 'typescript' || s === 'ts') return 'TypeScript';
+  if (s === 'python' || s === 'py') return 'Python';
+  if (s === 'java') return 'Java';
+  if (s === 'go' || s === 'golang') return 'Go';
+  if (s === 'rust' || s === 'rs') return 'Rust';
+  if (s === 'sql') return 'SQL';
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 export default function Multiplayer() {
   const { user } = useAuth();
 
@@ -60,6 +77,7 @@ export default function Multiplayer() {
   // WebSocket Connection Ref
   const connectionRef = useRef(null);
   const latestRoomRef = useRef(null);
+  const matchmakingPollRef = useRef(null);
 
   // Load Paginated History
   const loadHistory = useCallback(async (pageToLoad = 0, isInitial = false) => {
@@ -100,6 +118,10 @@ export default function Multiplayer() {
     const conn = connectMultiplayer({
       onState: (updatedRoom) => {
         if (!updatedRoom) {
+          if (latestRoomRef.current && ['COUNTDOWN', 'RACING', 'READY'].includes(latestRoomRef.current.state)) {
+            // Keep room in active match state during momentary socket reconnections
+            return;
+          }
           latestRoomRef.current = null;
           setRoom(null);
           sessionStorage.removeItem('devtype_active_room_id');
@@ -116,6 +138,18 @@ export default function Multiplayer() {
         } else if (updatedRoom.state === 'COMPLETED' || updatedRoom.state === 'CANCELLED') {
           sessionStorage.removeItem('devtype_active_room_id');
           sessionStorage.removeItem('devtype_active_room_mode');
+        }
+
+        // Auto-transition to racing view when match transitions to READY, COUNTDOWN, or RACING
+        if (['READY', 'COUNTDOWN', 'RACING'].includes(updatedRoom.state)) {
+          if (updatedRoom.mode === 'classic' || updatedRoom.mode === 'duel') {
+            if (matchmakingPollRef.current) {
+              clearInterval(matchmakingPollRef.current);
+              matchmakingPollRef.current = null;
+            }
+            setIsRankedModalOpen(false);
+            setActiveView('racing');
+          }
         }
 
         // When a ranked race finishes, show results modal
@@ -172,26 +206,27 @@ export default function Multiplayer() {
       const mpList = mpRes.status === 'fulfilled' && Array.isArray(mpRes.value) ? mpRes.value : [];
       const tplList = tplRes.status === 'fulfilled' && Array.isArray(tplRes.value?.items) ? tplRes.value.items : [];
       const backendTemplates = [
-        ...mpList,
+        ...mpList.map((t) => ({ ...t, language: normalizeLang(t.language) })),
         ...tplList.map((t) => ({
           id: t.id,
           title: t.title,
-          language: t.language,
+          language: normalizeLang(t.language),
           difficulty: t.difficulty,
           content: t.content || '',
           code: t.content || '',
           bugFix: false,
         }))
       ];
-      const initialPredefined = getAllPredefinedTemplates();
+      const initialPredefined = getAllPredefinedTemplates().map((t) => ({ ...t, language: normalizeLang(t.language) }));
       const merged = [...backendTemplates, ...initialPredefined];
       const seen = new Set();
       const unique = [];
       for (const item of merged) {
-        const key = `${(item.title || '').toLowerCase()}-${(item.language || '').toLowerCase()}`;
+        const canonicalLang = normalizeLang(item.language);
+        const key = `${(item.title || '').toLowerCase()}-${canonicalLang.toLowerCase()}`;
         if (!seen.has(key)) {
           seen.add(key);
-          unique.push(item);
+          unique.push({ ...item, language: canonicalLang });
         }
       }
       if (unique.length > 0) setTemplates(unique);
@@ -279,6 +314,10 @@ export default function Multiplayer() {
 
   // Leave active race / room and close socket
   const handleLeaveMatch = async () => {
+    if (matchmakingPollRef.current) {
+      clearInterval(matchmakingPollRef.current);
+      matchmakingPollRef.current = null;
+    }
     sessionStorage.removeItem('devtype_active_room_id');
     sessionStorage.removeItem('devtype_active_room_mode');
     if (connectionRef.current) {
@@ -310,6 +349,10 @@ export default function Multiplayer() {
   };
 
   const handleCloseRankedModal = () => {
+    if (matchmakingPollRef.current) {
+      clearInterval(matchmakingPollRef.current);
+      matchmakingPollRef.current = null;
+    }
     setIsRankedModalOpen(false);
     setMatchmakingError('');
     if (room && (room.state === 'SEARCHING' || room.state === 'WAITING')) {
@@ -342,16 +385,46 @@ export default function Multiplayer() {
 
         // Check if room is already filled (READY, COUNTDOWN, RACING)
         if (['READY', 'COUNTDOWN', 'RACING'].includes(initialRoom.state)) {
+          if (matchmakingPollRef.current) {
+            clearInterval(matchmakingPollRef.current);
+            matchmakingPollRef.current = null;
+          }
           setIsRankedModalOpen(false);
           setActiveView('racing');
         } else {
-          // If searching, keep radar modal open until WebSocket emits state change
-          const interval = setInterval(() => {
+          // If searching, keep radar modal open until WebSocket emits state change,
+          // WITH an active HTTP polling fallback every 1.5s so both players transition instantly!
+          if (matchmakingPollRef.current) clearInterval(matchmakingPollRef.current);
+          let pollTick = 0;
+          matchmakingPollRef.current = setInterval(async () => {
             const current = latestRoomRef.current;
             if (current && ['READY', 'COUNTDOWN', 'RACING'].includes(current.state)) {
-              clearInterval(interval);
+              if (matchmakingPollRef.current) {
+                clearInterval(matchmakingPollRef.current);
+                matchmakingPollRef.current = null;
+              }
               setIsRankedModalOpen(false);
               setActiveView('racing');
+              return;
+            }
+
+            pollTick++;
+            if (pollTick % 3 === 0) {
+              try {
+                const active = await multiplayerService.current();
+                if (active && ['READY', 'COUNTDOWN', 'RACING'].includes(active.state)) {
+                  latestRoomRef.current = active;
+                  setRoom(active);
+                  if (matchmakingPollRef.current) {
+                    clearInterval(matchmakingPollRef.current);
+                    matchmakingPollRef.current = null;
+                  }
+                  setIsRankedModalOpen(false);
+                  setActiveView('racing');
+                }
+              } catch {
+                /* transient network blip */
+              }
             }
           }, 500);
         }
@@ -876,16 +949,18 @@ export default function Multiplayer() {
       {/* ============================================================
           VIEW 2: ACTIVE RANKED RACE
           ============================================================ */}
-      {activeView === 'racing' && room && (
-        <MultiplayerRaceEditor
-          room={room}
-          me={me}
-          user={user}
-          send={send}
-          onLeave={handleLeaveMatch}
-          status={status}
-          isRanked={room.mode === 'classic' || room.mode === 'duel'}
-        />
+      {activeView === 'racing' && (room || latestRoomRef.current) && (
+        <ErrorBoundary title="Arena Synchronization Interrupted">
+          <MultiplayerRaceEditor
+            room={room || latestRoomRef.current}
+            me={me || (room || latestRoomRef.current)?.players?.find((p) => String(p.id) === String(user?.id))}
+            user={user}
+            send={send}
+            onLeave={handleLeaveMatch}
+            status={status}
+            isRanked={(room || latestRoomRef.current)?.mode === 'classic' || (room || latestRoomRef.current)?.mode === 'duel'}
+          />
+        </ErrorBoundary>
       )}
 
       {/* ============================================================
@@ -902,14 +977,16 @@ export default function Multiplayer() {
           VIEW 4: PRIVATE ROOM (HOST & GUEST)
           ============================================================ */}
       {activeView === 'private-room' && room && (
-        <PrivateRoomView
-          room={room}
-          user={user}
-          send={send}
-          onLeave={handleLeaveMatch}
-          status={status}
-          templates={templates}
-        />
+        <ErrorBoundary title="Private Room Synchronization Interrupted">
+          <PrivateRoomView
+            room={room}
+            user={user}
+            send={send}
+            onLeave={handleLeaveMatch}
+            status={status}
+            templates={templates}
+          />
+        </ErrorBoundary>
       )}
 
       {/* ============================================================
@@ -922,6 +999,7 @@ export default function Multiplayer() {
           mode={matchmakingMode}
           templates={templates}
           onStartMatchmaking={handleStartRankedMatchmaking}
+          onTimeout={handleCloseRankedModal}
           errorMessage={matchmakingError}
         />
       )}

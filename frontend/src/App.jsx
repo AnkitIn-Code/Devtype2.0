@@ -1,5 +1,6 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { AuthProvider } from './context/AuthContext';
@@ -101,66 +102,68 @@ export default function App() {
             <ToastBanner />
 
             <Suspense fallback={<RouteSuspenseFallback />}>
-              <Routes>
-                {/* Smart Root Route: Dashboard/Admin when logged in, Landing Page when not */}
-                <Route path="/" element={<RootRoute />} />
+              <ErrorBoundary>
+                <Routes>
+                  {/* Smart Root Route: Dashboard/Admin when logged in, Landing Page when not */}
+                  <Route path="/" element={<RootRoute />} />
 
-                {/* Public-only Auth Pages */}
-                <Route
-                  path="/login"
-                  element={
-                    <PublicOnlyRoute>
-                      <AuthPage initialMode="login" />
-                    </PublicOnlyRoute>
-                  }
-                />
-                <Route
-                  path="/signup"
-                  element={
-                    <PublicOnlyRoute>
-                      <AuthPage initialMode="signup" />
-                    </PublicOnlyRoute>
-                  }
-                />
+                  {/* Public-only Auth Pages */}
+                  <Route
+                    path="/login"
+                    element={
+                      <PublicOnlyRoute>
+                        <AuthPage initialMode="login" />
+                      </PublicOnlyRoute>
+                    }
+                  />
+                  <Route
+                    path="/signup"
+                    element={
+                      <PublicOnlyRoute>
+                        <AuthPage initialMode="signup" />
+                      </PublicOnlyRoute>
+                    }
+                  />
 
-                {/* Public Legal & Technical Documentation Pages */}
-                <Route path="/about" element={<AboutUs />} />
-                <Route path="/how-it-works" element={<HowItWorksPage />} />
-                <Route path="/roadmap" element={<RoadmapPage />} />
-                <Route path="/privacy" element={<LegalPrivacy />} />
-                <Route path="/terms" element={<TermsOfService />} />
-                <Route path="/engine" element={<EngineArchitecture />} />
-                <Route path="/feature-matrix" element={<FeatureMatrixPage />} />
-                <Route path="/features" element={<FeatureMatrixPage />} />
+                  {/* Public Legal & Technical Documentation Pages */}
+                  <Route path="/about" element={<AboutUs />} />
+                  <Route path="/how-it-works" element={<HowItWorksPage />} />
+                  <Route path="/roadmap" element={<RoadmapPage />} />
+                  <Route path="/privacy" element={<LegalPrivacy />} />
+                  <Route path="/terms" element={<TermsOfService />} />
+                  <Route path="/engine" element={<EngineArchitecture />} />
+                  <Route path="/feature-matrix" element={<FeatureMatrixPage />} />
+                  <Route path="/features" element={<FeatureMatrixPage />} />
 
-                {/* Authenticated Application Routes guarded by ProtectedRoute */}
-                <Route element={<ProtectedRoute />}>
-                  <Route element={<AppShell />}>
-                    <Route path="dashboard"     element={<Dashboard />} />
-                    <Route path="practice"      element={<Practice />} />
-                    <Route path="templates"     element={<Templates />} />
-                    <Route path="theory/:slug?" element={<Theory />} />
-                    <Route path="custom-studio" element={<CustomStudio />} />
-                    <Route path="ai-generator"  element={<Navigate to="/custom-studio" replace />} />
-                    <Route path="revision"      element={<Revision />} />
-                    <Route path="challenges"    element={<Navigate to="/revision" replace />} />
-                    <Route path="reports"       element={<Reports />} />
-                    <Route path="multiplayer"   element={<Multiplayer />} />
-                    <Route path="leaderboard"   element={<Leaderboard />} />
-                    <Route path="achievements"  element={<Achievements />} />
-                    <Route path="profile"       element={<Profile />} />
-                    <Route path="settings"      element={<Settings />} />
-                    <Route path="support"       element={<Support />} />
+                  {/* Authenticated Application Routes guarded by ProtectedRoute */}
+                  <Route element={<ProtectedRoute />}>
+                    <Route element={<AppShell />}>
+                      <Route path="dashboard"     element={<Dashboard />} />
+                      <Route path="practice"      element={<Practice />} />
+                      <Route path="templates"     element={<Templates />} />
+                      <Route path="theory/:slug?" element={<Theory />} />
+                      <Route path="custom-studio" element={<CustomStudio />} />
+                      <Route path="ai-generator"  element={<Navigate to="/custom-studio" replace />} />
+                      <Route path="revision"      element={<Revision />} />
+                      <Route path="challenges"    element={<Navigate to="/revision" replace />} />
+                      <Route path="reports"       element={<Reports />} />
+                      <Route path="multiplayer"   element={<Multiplayer />} />
+                      <Route path="leaderboard"   element={<Leaderboard />} />
+                      <Route path="achievements"  element={<Achievements />} />
+                      <Route path="profile"       element={<Profile />} />
+                      <Route path="settings"      element={<Settings />} />
+                      <Route path="support"       element={<Support />} />
+                    </Route>
+
+                    <Route element={<AdminRoute />}>
+                      <Route path="admin/*" element={<Admin />} />
+                    </Route>
                   </Route>
 
-                  <Route element={<AdminRoute />}>
-                    <Route path="admin/*" element={<Admin />} />
-                  </Route>
-                </Route>
-
-                {/* Fallback route */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+                  {/* Fallback route */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </ErrorBoundary>
             </Suspense>
           </AuthProvider>
         </NotificationProvider>

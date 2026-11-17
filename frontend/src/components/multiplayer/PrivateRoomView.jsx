@@ -22,7 +22,7 @@ export default function PrivateRoomView({
   const [closeWarning, setCloseWarning] = useState('');
 
   const isHost = String(room?.host) === String(user?.id);
-  const isRacing = room?.state === 'RACING';
+  const isRacing = room?.state === 'RACING' || room?.state === 'COUNTDOWN';
   const me = room?.players?.find((p) => String(p.id) === String(user?.id));
   const isFinished = !!me?.finishedAt;
 

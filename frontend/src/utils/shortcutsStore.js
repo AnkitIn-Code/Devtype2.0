@@ -1,90 +1,129 @@
 // src/utils/shortcutsStore.js
 import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '../services/api';
 
-export const SHORTCUTS_STORAGE_KEY = 'devtype_practice_shortcuts';
 export const SHORTCUTS_EVENT_NAME = 'devtype_shortcuts_updated';
 export const MAX_SHORTCUTS = 8;
 
-export const DEFAULT_SHORTCUTS = [
-  {
-    id: 'shortcut-cpp-lru-cache',
-    name: 'LRU Cache',
-    lang: 'C++',
-    source: 'template',
-    targetId: 'lru-cache-cpp',
-    to: '/practice?snippet=lru-cache-cpp&lang=C%2B%2B',
-  },
-  {
-    id: 'shortcut-cpp-binary-search',
-    name: 'Binary Search',
-    lang: 'C++',
-    source: 'template',
-    targetId: 'binary-search-cpp',
-    to: '/practice?snippet=binary-search-cpp&lang=C%2B%2B',
-  },
-  {
-    id: 'shortcut-py-two-sum',
-    name: 'Two Sum',
-    lang: 'Python',
-    source: 'template',
-    targetId: 'two-sum-python',
-    to: '/practice?snippet=two-sum-python&lang=Python',
-  },
-  {
-    id: 'shortcut-js-debounce',
-    name: 'Debounce Fn',
-    lang: 'JavaScript',
-    source: 'template',
-    targetId: 'debounce-javascript',
-    to: '/practice?snippet=debounce-javascript&lang=JavaScript',
-  },
-];
+// New users start with 0 shortcuts by default; they pin custom blueprints as desired.
+export const DEFAULT_SHORTCUTS = [];
+
+export function getActiveUserId() {
+  try {
+    const raw = localStorage.getItem('devtype_auth_user');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+export function getShortcutsKey(userId) {
+  const uid = userId !== undefined ? userId : getActiveUserId();
+  return uid ? `devtype_practice_shortcuts_${uid}` : 'devtype_practice_shortcuts';
+}
 
 /**
- * Fetch persisted shortcuts or fallback to defaults.
+ * Fetch persisted shortcuts. Authenticated users are strictly scoped by their userId.
  */
-export function getStoredShortcuts() {
+export function getStoredShortcuts(userId) {
   try {
-    const raw = localStorage.getItem(SHORTCUTS_STORAGE_KEY);
-    // Only fallback to defaults if the key has NEVER been saved in localStorage
-    if (raw === null) return DEFAULT_SHORTCUTS;
+    const key = getShortcutsKey(userId);
+    const raw = localStorage.getItem(key);
+    if (raw === null) {
+      return [];
+    }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    // Filter out corrupted entries created by legacy bugs
+    // Filter out corrupted entries
     const sanitized = parsed.filter(
       (s) => s && s.id && !s.id.includes('undefined') && s.targetId && s.targetId !== 'undefined'
     );
     if (sanitized.length !== parsed.length) {
-      localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(sanitized));
+      localStorage.setItem(key, JSON.stringify(sanitized));
     }
     return sanitized;
   } catch (err) {
     console.warn('Failed to parse practice shortcuts:', err);
-    return DEFAULT_SHORTCUTS;
+    return [];
   }
 }
 
 /**
- * Persist shortcuts to localStorage and notify all listeners.
+ * Synchronize user shortcuts with server preferences.
  */
-export function saveShortcuts(shortcuts) {
+export async function syncShortcutsWithServer(userId) {
+  const uid = userId !== undefined ? userId : getActiveUserId();
+  if (!uid) return [];
+
   try {
-    const sanitized = Array.isArray(shortcuts) ? shortcuts.slice(0, MAX_SHORTCUTS) : [];
-    localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(sanitized));
-    window.dispatchEvent(new CustomEvent(SHORTCUTS_EVENT_NAME, { detail: sanitized }));
+    const res = await apiFetch('/api/v1/users/me/preferences');
+    const prefs = res?.data !== undefined ? res.data : res;
+    let serverList = [];
+    if (prefs?.practiceShortcuts) {
+      try {
+        const parsed = JSON.parse(prefs.practiceShortcuts);
+        if (Array.isArray(parsed)) {
+          serverList = parsed.filter(
+            (s) => s && s.id && !s.id.includes('undefined') && s.targetId && s.targetId !== 'undefined'
+          );
+        }
+      } catch (_) {}
+    }
+    const key = getShortcutsKey(uid);
+    localStorage.setItem(key, JSON.stringify(serverList));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(SHORTCUTS_EVENT_NAME, { detail: serverList }));
+    }
+    return serverList;
+  } catch (_) {
+    return getStoredShortcuts(uid);
+  }
+}
+
+/**
+ * Persist shortcuts to user-scoped localStorage, mirror to server preferences, and notify listeners.
+ */
+export function saveShortcuts(shortcuts, userId) {
+  try {
+    const uid = userId !== undefined ? userId : getActiveUserId();
+    const sanitized = Array.isArray(shortcuts)
+      ? shortcuts.slice(0, MAX_SHORTCUTS).filter(
+          (s) => s && s.id && !s.id.includes('undefined') && s.targetId && s.targetId !== 'undefined'
+        )
+      : [];
+    const key = getShortcutsKey(uid);
+    localStorage.setItem(key, JSON.stringify(sanitized));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(SHORTCUTS_EVENT_NAME, { detail: sanitized }));
+    }
+
+    // Push to server preferences immediately if authenticated
+    if (uid) {
+      apiFetch('/api/v1/users/me/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({
+          practiceShortcuts: JSON.stringify(sanitized),
+        }),
+      }).catch((err) => {
+        console.warn('Failed to mirror shortcuts to server preferences:', err);
+      });
+    }
+
     return sanitized;
   } catch (err) {
     console.error('Failed to save practice shortcuts:', err);
-    return getStoredShortcuts();
+    return getStoredShortcuts(userId);
   }
 }
 
 /**
  * Add a new shortcut. Returns { success: boolean, message?: string }
  */
-export function addShortcut(item) {
-  const current = getStoredShortcuts();
+export function addShortcut(item, userId) {
+  const current = getStoredShortcuts(userId);
 
   // Check if already reached max capacity
   if (current.length >= MAX_SHORTCUTS) {
@@ -107,48 +146,48 @@ export function addShortcut(item) {
   }
 
   const updated = [...current, item];
-  saveShortcuts(updated);
+  saveShortcuts(updated, userId);
   return { success: true };
 }
 
 /**
  * Remove shortcut by unique id.
  */
-export function removeShortcut(id) {
-  const current = getStoredShortcuts();
+export function removeShortcut(id, userId) {
+  const current = getStoredShortcuts(userId);
   const updated = current.filter((s) => s.id !== id);
-  saveShortcuts(updated);
+  saveShortcuts(updated, userId);
   return updated;
 }
 
 /**
  * Reorder shortcuts (move item from fromIndex to toIndex).
  */
-export function reorderShortcuts(fromIndex, toIndex) {
-  const current = [...getStoredShortcuts()];
+export function reorderShortcuts(fromIndex, toIndex, userId) {
+  const current = [...getStoredShortcuts(userId)];
   if (fromIndex < 0 || fromIndex >= current.length || toIndex < 0 || toIndex >= current.length) {
     return current;
   }
   const [moved] = current.splice(fromIndex, 1);
   current.splice(toIndex, 0, moved);
-  saveShortcuts(current);
+  saveShortcuts(current, userId);
   return current;
 }
 
 /**
- * Reset to default shortcuts.
+ * Reset shortcuts to empty list.
  */
-export function resetShortcuts() {
-  saveShortcuts(DEFAULT_SHORTCUTS);
-  return DEFAULT_SHORTCUTS;
+export function resetShortcuts(userId) {
+  saveShortcuts([], userId);
+  return [];
 }
 
 /**
  * Check if a specific template or card is already pinned.
  */
-export function isShortcutActive(targetId, lang) {
+export function isShortcutActive(targetId, lang, userId) {
   if (!targetId || targetId === 'undefined') return false;
-  const current = getStoredShortcuts();
+  const current = getStoredShortcuts(userId);
   return current.some((s) => {
     if (!s.targetId || s.targetId === 'undefined') return false;
     if (s.id === targetId || s.targetId === targetId) {
@@ -160,14 +199,25 @@ export function isShortcutActive(targetId, lang) {
 }
 
 /**
- * React hook to access and synchronize practice shortcuts state.
+ * React hook to access and synchronize practice shortcuts state across browsers.
  */
-export function useShortcuts() {
-  const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts());
+export function useShortcuts(userId) {
+  const [shortcuts, setShortcuts] = useState(() => getStoredShortcuts(userId));
 
   useEffect(() => {
-    const handleUpdate = () => {
-      setShortcuts(getStoredShortcuts());
+    if (userId) {
+      setShortcuts(getStoredShortcuts(userId));
+      syncShortcutsWithServer(userId).then((list) => {
+        if (Array.isArray(list)) setShortcuts(list);
+      });
+    }
+
+    const handleUpdate = (e) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setShortcuts(e.detail);
+      } else {
+        setShortcuts(getStoredShortcuts(userId));
+      }
     };
 
     window.addEventListener(SHORTCUTS_EVENT_NAME, handleUpdate);
@@ -177,12 +227,12 @@ export function useShortcuts() {
       window.removeEventListener(SHORTCUTS_EVENT_NAME, handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
-  }, []);
+  }, [userId]);
 
-  const add = useCallback((item) => addShortcut(item), []);
-  const remove = useCallback((id) => removeShortcut(id), []);
-  const reorder = useCallback((from, to) => reorderShortcuts(from, to), []);
-  const reset = useCallback(() => resetShortcuts(), []);
+  const add = useCallback((item) => addShortcut(item, userId), [userId]);
+  const remove = useCallback((id) => removeShortcut(id, userId), [userId]);
+  const reorder = useCallback((from, to) => reorderShortcuts(from, to, userId), [userId]);
+  const reset = useCallback(() => resetShortcuts(userId), [userId]);
 
   return {
     shortcuts,

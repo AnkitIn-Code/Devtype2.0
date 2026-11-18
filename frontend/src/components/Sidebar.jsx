@@ -38,7 +38,7 @@ const NAV = [
 export default function Sidebar({ mobileOpen = false, onNavigate, closeButtonRef }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { shortcuts, removeShortcut } = useShortcuts();
+  const { shortcuts, removeShortcut } = useShortcuts(user?.id);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
 
   const displayName = user?.displayName || user?.username || 'Developer';

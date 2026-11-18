@@ -12,6 +12,7 @@ import { srsService } from '../services/srsService';
 import { deriveQualityScore } from '../utils/srsEngine';
 import { useAuth } from '../context/AuthContext';
 import { saveUserSession } from '../utils/reportStore';
+import { syncPendingSessionsToServer } from '../utils/sessionSync';
 import { dataCache } from '../services/dataCache';
 
 import CodePracticeEditor from '../components/practice/CodePracticeEditor';
@@ -384,10 +385,7 @@ export default function Practice() {
       if (isSubmittingRef.current) return;
       isSubmittingRef.current = true;
 
-      // 1. Save to local storage for instant availability
-      saveSessionResults(finalMetrics);
-
-      // 2. Submit to server if session was started (or auto-initialize now)
+      // 1. Submit to server if session was started (or auto-initialize now)
       try {
         let sess = null;
         if (activeSessionPromiseRef.current) {
@@ -427,7 +425,9 @@ export default function Practice() {
           });
         }
 
-        // Spaced Repetition (SRS) Performance Matrix Analysis (Templates only, never Custom Studio)
+        // Spaced Repetition (SRS) Performance Matrix Analysis
+        // For standard platform templates, PracticeSessionService automatically tracks SRS interval in backend.
+        // Explicit submitReview is reserved for active SRS review drills (srsCardIdParam or practiceMode === 'srs').
         const isCustomSnippet = Boolean(
           selectedSnippet?.isCustom ||
           String(selectedSnippet?.id || '').startsWith('custom-') ||
@@ -435,8 +435,9 @@ export default function Practice() {
           selectedSnippet?.category === 'Custom Studio' ||
           location.state?.snippet?.isCustom
         );
+        const isExplicitSrsReview = Boolean(srsCardIdParam || practiceMode === 'srs');
 
-        if (!isCustomSnippet) {
+        if (isExplicitSrsReview && !isCustomSnippet) {
           try {
             const cardSnippetId = selectedSnippet?.slug || selectedSnippet?.id || srsCardIdParam;
             if (cardSnippetId) {
@@ -520,6 +521,16 @@ export default function Practice() {
           saveUserSession(verifiedSession, user?.id);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('devtype_session_completed', { detail: verifiedSession }));
+            if (serverResult.totalXp !== undefined) {
+              window.dispatchEvent(new CustomEvent('devtype_xp_updated', {
+                detail: {
+                  totalXp: serverResult.totalXp,
+                  level: serverResult.currentLevel,
+                  nextLevelXp: serverResult.nextLevelXp,
+                  levelProgressPercent: serverResult.levelProgressPercent,
+                },
+              }));
+            }
           }
         }
 
@@ -531,7 +542,12 @@ export default function Practice() {
         activeSessionIdRef.current = null;
         activeSessionPromiseRef.current = null;
       } catch (err) {
-        console.warn('Could not complete practice session on backend:', err);
+        console.warn('Could not complete practice session on backend, falling back to local storage:', err);
+        // Only save unverified session if backend submission failed completely (offline mode)
+        saveSessionResults(finalMetrics);
+        if (user?.id) {
+          syncPendingSessionsToServer(user.id);
+        }
       } finally {
         isSubmittingRef.current = false;
         setResultsModalOpen(true);

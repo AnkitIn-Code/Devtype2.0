@@ -3,7 +3,6 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
-import LandingFooter from './landing/LandingFooter';
 
 export default function AppShell() {
   const { user } = useAuth();
@@ -44,7 +43,6 @@ export default function AppShell() {
           <main className="page-body"><Outlet /></main>
         </div>
       </div>
-      <div className="workspace-footer" inert={menuOpen}><LandingFooter /></div>
     </div>
   );
 }

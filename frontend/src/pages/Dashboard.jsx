@@ -13,7 +13,14 @@ import { templateService } from '../services/templateService';
 import { srsService, computeCardRetention } from '../services/srsService';
 import { dataCache } from '../services/dataCache';
 import { getSavedSessions } from '../utils/reportStore';
-import { mergeSessions, buildUnifiedDailyActivity, calculateConsistentStreak } from '../utils/sessionSync';
+import {
+  normalizeSession,
+  mergeSessions,
+  buildUnifiedDailyActivity,
+  calculateConsistentStreak,
+  syncPendingSessionsToServer,
+  syncUserSessionsFromServer
+} from '../utils/sessionSync';
 import ActivityHeatmap from '../components/common/ActivityHeatmap';
 import { PREDEFINED_BLUEPRINTS, getPredefinedSnippet } from '../data/predefinedBlueprints';
 
@@ -439,7 +446,7 @@ function RecentSessions({ sessions = [], onViewAll }) {
    ================================================================ */
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
 
   // ── Synchronous Eager Hydration from Cache (Zero Loading Wait) ──
   const cachedDash = useMemo(() => dataCache.getDashboard(user?.id), [user?.id]);
@@ -470,6 +477,14 @@ export default function Dashboard() {
         if (data) {
           setDashboardData(data);
           dataCache.setDashboard(user?.id, data);
+          if (updateUser && data.totalXp !== undefined) {
+            updateUser({
+              totalXp: data.totalXp,
+              level: data.level || 1,
+              nextLevelXp: data.nextLevelXp || 200,
+              levelProgressPercent: data.levelProgressPercent || 0,
+            });
+          }
         }
         setIsLoading(false);
       })
@@ -491,6 +506,19 @@ export default function Dashboard() {
   useEffect(() => {
     let isMounted = true;
     fetchLiveDashboard();
+
+    // Flush any pending unverified sessions to server database
+    syncPendingSessionsToServer(user?.id).then(() => {
+      if (isMounted) fetchLiveDashboard();
+    });
+
+    // Hydrate local cache with authoritative completed sessions from server
+    syncUserSessionsFromServer(user?.id).then((merged) => {
+      if (isMounted && merged) {
+        setLocalSessions(merged);
+        fetchLiveDashboard();
+      }
+    });
 
     // Load SRS recall cards
     const loadSrs = () => {
@@ -541,10 +569,19 @@ export default function Dashboard() {
       if (Array.isArray(freshDeck)) setTotalSrsCards(freshDeck.length);
     };
 
+    const handleRevalidateFocus = () => {
+      if (!isMounted) return;
+      if (document.visibilityState === 'visible') {
+        fetchLiveDashboard();
+      }
+    };
+
     window.addEventListener('devtype_session_completed', handleSessionCompleted);
     window.addEventListener('storage', handleStorageUpdate);
     window.addEventListener('devtype_cache_revalidated', handleCacheRevalidated);
     window.addEventListener('devtype_srs_updated', loadSrs);
+    window.addEventListener('visibilitychange', handleRevalidateFocus);
+    window.addEventListener('online', handleRevalidateFocus);
 
     return () => {
       isMounted = false;
@@ -552,6 +589,8 @@ export default function Dashboard() {
       window.removeEventListener('storage', handleStorageUpdate);
       window.removeEventListener('devtype_cache_revalidated', handleCacheRevalidated);
       window.removeEventListener('devtype_srs_updated', loadSrs);
+      window.removeEventListener('visibilitychange', handleRevalidateFocus);
+      window.removeEventListener('online', handleRevalidateFocus);
     };
   }, [user?.id, fetchLiveDashboard]);
 
@@ -697,8 +736,11 @@ export default function Dashboard() {
   // ── Unified Session Merging: Consistent across Dashboard, Profile, and Reports ──
   const allUserSessions = useMemo(() => {
     const serverRecent = dashboardData?.recentSessions || [];
+    if (user?.id) {
+      return serverRecent.map((s) => normalizeSession(s));
+    }
     return mergeSessions(serverRecent, localSessions);
-  }, [dashboardData?.recentSessions, localSessions]);
+  }, [dashboardData?.recentSessions, localSessions, user?.id]);
 
   const recentSessions = useMemo(() => {
     return allUserSessions.slice(0, 5);
@@ -713,17 +755,19 @@ export default function Dashboard() {
   }, [dashboardData?.currentStreak, dashboardData?.dailyActivity, allUserSessions]);
 
   const completedSessions = useMemo(() => {
-    return Math.max(Number(dashboardData?.totalCompletedSessions) || 0, allUserSessions.length);
+    const serverVal = dashboardData?.totalCompletedSessions != null ? Number(dashboardData.totalCompletedSessions) : 0;
+    return Math.max(serverVal, allUserSessions.length);
   }, [dashboardData?.totalCompletedSessions, allUserSessions.length]);
 
   const bestWpm = useMemo(() => {
-    const serverBest = Number(dashboardData?.bestWpm) || 0;
+    const serverBest = dashboardData?.bestWpm != null ? Math.round(Number(dashboardData.bestWpm)) : 0;
     const sessionBests = allUserSessions.map((s) => Number(s.wpm || s.netWpm) || 0);
     const maxVal = Math.max(serverBest, ...sessionBests);
-    return maxVal > 0 ? Math.round(maxVal) : (dashboardData?.bestWpm != null ? Math.round(Number(dashboardData.bestWpm)) : null);
+    return maxVal > 0 ? maxVal : 0;
   }, [dashboardData?.bestWpm, allUserSessions]);
 
   const avgAccuracy = useMemo(() => {
+    if (completedSessions === 0) return 0;
     if (dashboardData?.averageAccuracy != null) {
       return Math.round(Number(dashboardData.averageAccuracy));
     }
@@ -731,8 +775,8 @@ export default function Dashboard() {
       const sum = allUserSessions.reduce((acc, s) => acc + (s.accuracy || 100), 0);
       return Math.round(sum / allUserSessions.length);
     }
-    return null;
-  }, [dashboardData?.averageAccuracy, allUserSessions]);
+    return 0;
+  }, [dashboardData?.averageAccuracy, allUserSessions, completedSessions]);
 
   const totalPracticeTimeSeconds = useMemo(() => {
     const serverTime = Number(dashboardData?.totalPracticeTimeSeconds) || 0;

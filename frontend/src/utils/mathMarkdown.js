@@ -166,35 +166,38 @@ export function formatTheoryMarkdown(rawText) {
 
     const lines = highlighted.split('\n');
     const linesHtml = lines.map((lineContent, lineIdx) => (
-      `<div class="vscode-line flex hover:bg-white/[0.04] transition-colors"><span class="vscode-line-num select-none">${lineIdx + 1}</span><span class="vscode-line-text">${lineContent || '&nbsp;'}</span></div>`
+      `<div class="vscode-line" style="display: flex; align-items: center; min-height: 1.55rem; line-height: 1.55rem; padding: 0 4px; border-radius: 2px;"><span class="vscode-line-num" style="text-align: right; padding-right: 1.25rem; color: #6e7681; user-select: none; font-size: 11.5px; min-width: 2.75rem; flex-shrink: 0; font-family: inherit;">${lineIdx + 1}</span><span class="vscode-line-text" style="flex: 1; white-space: pre; font-size: 12.5px; color: #d4d4d4; font-family: inherit;">${lineContent || '&nbsp;'}</span></div>`
     )).join('');
 
     const encoded = encodeURIComponent(rawCode);
 
+    const copySvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+    const termSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>`;
+
     return `
-<div class="vscode-code-card my-6 rounded-xl overflow-hidden border border-outline-variant/20 shadow-xl bg-[#1e1e1e] transition-all">
-  <div class="vscode-header flex items-center justify-between px-3.5 py-2 bg-[#252526] border-b border-[#333333] select-none text-xs font-mono">
-    <div class="flex items-center gap-3">
-      <div class="flex items-center gap-1.5">
-        <span class="w-2.5 h-2.5 rounded-full bg-[#ff5f56] inline-block opacity-85"></span>
-        <span class="w-2.5 h-2.5 rounded-full bg-[#ffbd2e] inline-block opacity-85"></span>
-        <span class="w-2.5 h-2.5 rounded-full bg-[#27c93f] inline-block opacity-85"></span>
+<div class="vscode-code-card" style="margin: 20px 0; border-radius: 12px; overflow: hidden; background: #1e1e1e !important; border: 1px solid rgba(255, 255, 255, 0.12) !important; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45); font-family: 'JetBrains Mono', Consolas, monospace;">
+  <div class="vscode-header" style="display: flex !important; align-items: center !important; justify-content: space-between !important; padding: 8px 14px; background: #252526 !important; border-bottom: 1px solid #333333 !important; user-select: none; box-sizing: border-box; min-height: 38px;">
+    <div class="vscode-header-left" style="display: flex !important; align-items: center !important; gap: 12px;">
+      <div class="vscode-traffic-lights" style="display: flex !important; align-items: center !important; gap: 6px;">
+        <span style="width: 10px; height: 10px; border-radius: 50%; background: #ff5f56; display: inline-block; opacity: 0.85;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 50%; background: #ffbd2e; display: inline-block; opacity: 0.85;"></span>
+        <span style="width: 10px; height: 10px; border-radius: 50%; background: #27c93f; display: inline-block; opacity: 0.85;"></span>
       </div>
-      <div class="vscode-tab flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#1e1e1e] border-t-2 border-t-[#007acc] text-[#cccccc] text-[11px] font-semibold">
-        <span class="material-symbols-outlined text-[13px] text-primary">${meta.icon}</span>
+      <div class="vscode-tab" style="display: flex !important; align-items: center !important; gap: 6px; padding: 4px 10px; border-radius: 4px; background: #1e1e1e !important; border-top: 2px solid #007acc; color: #cccccc !important; font-size: 11.5px; font-weight: 600;">
+        ${termSvg}
         <span>${meta.fileName}</span>
       </div>
     </div>
-    <div class="flex items-center gap-2.5">
-      <span class="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-[#333333] text-[#858585] font-semibold">${meta.badge}</span>
-      <button class="vscode-copy-btn flex items-center gap-1 px-2.5 py-0.5 rounded bg-[#2d2d2d] hover:bg-[#383838] text-[#9cdcfe] hover:text-white text-[11px] font-mono transition cursor-pointer" data-code="${encoded}" title="Copy code snippet">
-        <span class="material-symbols-outlined text-[13px]">content_copy</span>
+    <div class="vscode-header-right" style="display: flex !important; align-items: center !important; gap: 8px; margin-left: auto; flex-shrink: 0;">
+      <span class="vscode-lang-badge" style="font-size: 10px !important; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; background: #333333 !important; color: #a0a0a0 !important; font-weight: 700; line-height: 1; display: inline-flex !important; align-items: center !important; white-space: nowrap;">${meta.badge}</span>
+      <button type="button" class="vscode-copy-btn" data-code="${encoded}" title="Copy code snippet" style="display: inline-flex !important; align-items: center !important; gap: 5px; padding: 3px 10px; border-radius: 5px; background: #2d2d2d !important; border: 1px solid #404040 !important; color: #9cdcfe !important; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; line-height: 1.4; white-space: nowrap;">
+        ${copySvg}
         <span class="copy-text">Copy</span>
       </button>
     </div>
   </div>
-  <div class="vscode-editor p-3.5 sm:p-4 overflow-x-auto text-xs font-mono leading-relaxed">
-    <pre class="vscode-code-body m-0 p-0 font-mono text-[12.5px] leading-relaxed"><code>${linesHtml}</code></pre>
+  <div class="vscode-editor" style="padding: 14px 16px; overflow-x: auto; background: #1e1e1e !important; background-color: #1e1e1e !important;">
+    <pre class="vscode-code-body" style="margin: 0 !important; padding: 0 !important; background: transparent !important; background-color: transparent !important; border: none !important; box-shadow: none !important; border-radius: 0 !important; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.65; overflow: visible !important;"><code style="background: transparent !important; background-color: transparent !important; border: none !important; padding: 0 !important; font-family: inherit;">${linesHtml}</code></pre>
   </div>
 </div>`;
   });

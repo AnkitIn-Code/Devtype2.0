@@ -23,6 +23,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useShortcuts } from '../../utils/shortcutsStore';
+import { useAuth } from '../../context/AuthContext';
 import { PREDEFINED_BLUEPRINTS } from '../../data/predefinedBlueprints';
 
 const LANG_COLORS = {
@@ -80,7 +81,8 @@ function getTemplateSlug(template, lang) {
 
 export default function PracticeShortcutsModal({ isOpen, onClose }) {
   const navigate = useNavigate();
-  const { shortcuts, addShortcut, removeShortcut, reorderShortcuts, resetShortcuts, maxShortcuts } = useShortcuts();
+  const { user } = useAuth();
+  const { shortcuts, addShortcut, removeShortcut, reorderShortcuts, resetShortcuts, maxShortcuts } = useShortcuts(user?.id);
 
   const [activeTab, setActiveTab] = useState('templates'); // 'templates' | 'custom'
   const [searchQuery, setSearchQuery] = useState('');
@@ -269,12 +271,12 @@ export default function PracticeShortcutsModal({ isOpen, onClose }) {
                 className="btn btn-ghost btn-xs shortcuts-reset-btn"
                 onClick={() => {
                   resetShortcuts();
-                  showNotice('Reset shortcuts to default catalog items.');
+                  showNotice('Cleared all pinned shortcuts.');
                 }}
-                title="Restore default shortcuts"
+                title="Clear all pinned shortcuts"
               >
                 <RotateCcw size={12} />
-                <span>Reset Defaults</span>
+                <span>Clear All</span>
               </button>
             )}
           </div>

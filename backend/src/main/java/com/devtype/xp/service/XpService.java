@@ -82,6 +82,9 @@ public class XpService {
 
         // Calculate award based on difficulty and accuracy
         int totalAward = calculatePracticeXpAmount(session);
+        if (totalAward <= 0) {
+            return createZeroResult(user.getTotalXp());
+        }
 
         try {
             XpTransaction tx = new XpTransaction(
@@ -98,7 +101,7 @@ public class XpService {
             userRepository.save(user);
 
             UserLevelProgression prog = levelProgressionService.calculateProgression(user.getTotalXp());
-            log.info("Awarded {} XP to user {} for practice session {}", totalAward, user.getUsername(), session.getId());
+            log.debug("Awarded {} XP to user {} for practice session {}", totalAward, user.getUsername(), session.getId());
             return new XpAwardResult(
                     totalAward,
                     user.getTotalXp(),
@@ -131,7 +134,7 @@ public class XpService {
      */
     @Transactional
     public XpAwardResult awardSrsXp(User user, Long srsCardId, int amount, String description) {
-        if (user == null || srsCardId == null) {
+        if (user == null || srsCardId == null || amount <= 0) {
             return createZeroResult(user != null ? user.getTotalXp() : 0L);
         }
 
@@ -151,7 +154,7 @@ public class XpService {
             userRepository.save(user);
 
             UserLevelProgression prog = levelProgressionService.calculateProgression(user.getTotalXp());
-            log.info("Awarded {} XP to user {} for SRS review {}", amount, user.getUsername(), srsCardId);
+            log.debug("Awarded {} XP to user {} for SRS review {}", amount, user.getUsername(), srsCardId);
             return new XpAwardResult(
                     amount,
                     user.getTotalXp(),
@@ -217,7 +220,7 @@ public class XpService {
             userRepository.save(user);
 
             UserLevelProgression prog = levelProgressionService.calculateProgression(user.getTotalXp());
-            log.info("Awarded {} XP to user {} for achievement {}", amount, user.getUsername(), achievement.getCode());
+            log.debug("Awarded {} XP to user {} for achievement {}", amount, user.getUsername(), achievement.getCode());
             return new XpAwardResult(
                     amount,
                     user.getTotalXp(),
@@ -251,6 +254,16 @@ public class XpService {
     }
 
     private int calculatePracticeXpAmount(PracticeSession session) {
+        if (session == null
+                || session.getStatus() != PracticeSessionStatus.COMPLETED
+                || session.getNetWpm() == null
+                || session.getNetWpm().compareTo(BigDecimal.ZERO) <= 0
+                || session.getCorrectCharacters() == null
+                || session.getCorrectCharacters() <= 0
+                || (session.getAccuracyPercent() != null && session.getAccuracyPercent().compareTo(new BigDecimal("40.00")) < 0)) {
+            return 0;
+        }
+
         int xp = BASE_PRACTICE_XP;
 
         String diff = session.getDifficultySnapshot() != null ? session.getDifficultySnapshot().toUpperCase() : "";

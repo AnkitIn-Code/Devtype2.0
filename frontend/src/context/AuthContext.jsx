@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authService } from '../services/authService';
 import { dataCache } from '../services/dataCache';
+import { syncShortcutsWithServer } from '../utils/shortcutsStore';
 
 const AuthContext = createContext(null);
 
@@ -38,6 +39,7 @@ export function AuthProvider({ children }) {
         if (isMounted && freshProfile) {
           setUser(freshProfile);
           setToken(activeToken);
+          syncShortcutsWithServer(freshProfile.id);
           // Kick off background prefetch immediately
           dataCache.prefetchAll(freshProfile.id, freshProfile);
         }
@@ -71,12 +73,44 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  // Synchronize XP & level telemetry updates across application in real time
+  useEffect(() => {
+    const handleXpUpdated = (e) => {
+      if (e.detail?.totalXp !== undefined) {
+        setUser((prev) => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            totalXp: e.detail.totalXp,
+            level: e.detail.level !== undefined ? e.detail.level : prev.level,
+            levelProgressPercent: e.detail.levelProgressPercent !== undefined ? e.detail.levelProgressPercent : prev.levelProgressPercent,
+          };
+          authService.setStoredUser(next);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('devtype_xp_updated', handleXpUpdated);
+    return () => {
+      window.removeEventListener('devtype_xp_updated', handleXpUpdated);
+    };
+  }, []);
+
   const login = useCallback(async (credentials) => {
     const authData = await authService.login(credentials);
     setToken(authData?.accessToken || null);
     setUser(authData?.user || null);
     if (authData?.user?.id) {
       dataCache.prefetchAll(authData.user.id, authData.user);
+      syncShortcutsWithServer(authData.user.id);
+      // Fetch full server profile in background to ensure 100% authoritative telemetry
+      authService.getCurrentUser().then((profile) => {
+        if (profile) {
+          setUser(profile);
+          authService.setStoredUser(profile);
+        }
+      }).catch(() => {});
     }
     return authData;
   }, []);

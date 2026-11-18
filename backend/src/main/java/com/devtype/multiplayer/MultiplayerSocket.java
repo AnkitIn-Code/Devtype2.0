@@ -95,7 +95,7 @@ public class MultiplayerSocket extends TextWebSocketHandler {
                 RaceRoom room = service.current(c.user);
                 c.room = room == null ? null : room.id;
                 send(c, Map.of("type", "AUTHENTICATED", "serverTime", now));
-                if (room != null) {
+                if (room != null && !service.terminal(room)) {
                     send(c, Map.of("type", "STATE", "room", room, "serverTime", now));
                 }
                 return;
@@ -205,7 +205,7 @@ public class MultiplayerSocket extends TextWebSocketHandler {
                 }
                 if (c.user != null && c.room != null) {
                     RaceRoom room = service.getCachedRoom(c.room);
-                    if (room != null && (room.id.equals(c.room) || room.players.stream().anyMatch(p -> p.id == c.user))) {
+                    if (room != null && !service.terminal(room) && room.players.stream().anyMatch(p -> p.id == c.user && !p.forfeited)) {
                         send(c, Map.of("type", "STATE", "room", room, "serverTime", now));
                     }
                 }

@@ -23,6 +23,10 @@ public class UserSummaryResponse {
     private AccountType accountType;
     private Instant createdAt;
     private Instant lastLoginAt;
+    private Long totalXp = 0L;
+    private Integer level = 1;
+    private Long nextLevelXp = 200L;
+    private Integer levelProgressPercent = 0;
 
     public UserSummaryResponse() {
     }
@@ -43,7 +47,7 @@ public class UserSummaryResponse {
     }
 
     public static UserSummaryResponse fromUser(User user) {
-        return new UserSummaryResponse(
+        UserSummaryResponse res = new UserSummaryResponse(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
@@ -55,6 +59,26 @@ public class UserSummaryResponse {
                 user.getCreatedAt(),
                 user.getLastLoginAt()
         );
+
+        long xp = user.getTotalXp() != null ? user.getTotalXp() : 0L;
+        res.setTotalXp(xp);
+
+        // Standard logarithmic level formula matching UserProfileResponse
+        double term = 1.0 + (4.0 * xp) / 100.0;
+        int lvl = 1 + (int) Math.floor((Math.sqrt(term) - 1.0) / 2.0);
+        res.setLevel(Math.max(1, lvl));
+        long nextThreshold = 100L * lvl * (lvl + 1);
+        res.setNextLevelXp(nextThreshold);
+
+        long currThreshold = 100L * (lvl - 1) * lvl;
+        long span = nextThreshold - currThreshold;
+        if (span > 0) {
+            res.setLevelProgressPercent((int) Math.min(100, Math.max(0, Math.round(((xp - currThreshold) * 100.0) / span))));
+        } else {
+            res.setLevelProgressPercent(0);
+        }
+
+        return res;
     }
 
     public Long getId() {
@@ -135,5 +159,37 @@ public class UserSummaryResponse {
 
     public void setLastLoginAt(Instant lastLoginAt) {
         this.lastLoginAt = lastLoginAt;
+    }
+
+    public Long getTotalXp() {
+        return totalXp;
+    }
+
+    public void setTotalXp(Long totalXp) {
+        this.totalXp = totalXp;
+    }
+
+    public Integer getLevel() {
+        return level;
+    }
+
+    public void setLevel(Integer level) {
+        this.level = level;
+    }
+
+    public Long getNextLevelXp() {
+        return nextLevelXp;
+    }
+
+    public void setNextLevelXp(Long nextLevelXp) {
+        this.nextLevelXp = nextLevelXp;
+    }
+
+    public Integer getLevelProgressPercent() {
+        return levelProgressPercent;
+    }
+
+    public void setLevelProgressPercent(Integer levelProgressPercent) {
+        this.levelProgressPercent = levelProgressPercent;
     }
 }

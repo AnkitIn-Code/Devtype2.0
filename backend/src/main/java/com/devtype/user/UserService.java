@@ -106,6 +106,9 @@ public class UserService {
         if (request.soundEnabled() != null) {
             prefs.setSoundEnabled(request.soundEnabled());
         }
+        if (request.practiceShortcuts() != null) {
+            prefs.setPracticeShortcuts(request.practiceShortcuts());
+        }
 
         UserPreferences saved = userPreferencesRepository.save(prefs);
         return com.devtype.user.dto.UserPreferencesResponse.fromEntity(saved);

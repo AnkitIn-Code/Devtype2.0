@@ -210,16 +210,11 @@ public class SrsService {
         card.setLastQualityScore(result.qualityScore());
 
         SrsCard saved = srsCardRepository.save(card);
-        log.info("SRS Benchmark Evaluated for user {} on template '{}': wpm={}, acc={}% errors={} -> interval={}d, mastered={}, nextDue={}",
+        log.debug("SRS Benchmark Evaluated for user {} on template '{}': wpm={}, acc={}% errors={} -> interval={}d, mastered={}, nextDue={}",
                 user.getUsername(), template.getTitle(), netWpm, accuracy, errorCount, result.intervalDays(), result.isMastered(), result.dueDate());
 
-        // Award SRS XP (50 XP standard, +25 bonus for mastery)
-        int xpReward = (result.isMastered() || result.qualityScore() >= 4) ? 75 : 50;
-        try {
-            xpService.awardSrsXp(user, saved.getId(), xpReward, "SRS Recall: " + saved.getSnippetTitle());
-        } catch (Exception e) {
-            log.warn("Could not award SRS XP: {}", e.getMessage());
-        }
+        // Note: Standard practice sessions receive Practice XP via PracticeSessionService;
+        // SRS review XP is reserved strictly for intentional SRS active recall drills.
 
         // Evaluate milestone achievements for SRS reviews
         try {
@@ -281,15 +276,17 @@ public class SrsService {
         card.setLastQualityScore(result.qualityScore());
 
         SrsCard saved = srsCardRepository.save(card);
-        log.info("Updated SRS card {} for user {}: repetition={}, intervalDays={}, mastered={}, nextDue={}",
+        log.debug("Updated SRS card {} for user {}: repetition={}, intervalDays={}, mastered={}, nextDue={}",
                 saved.getSnippetId(), user.getUsername(), result.repetition(), result.intervalDays(), result.isMastered(), result.dueDate());
 
-        // Award SRS XP (50 XP standard, +25 bonus for mastery)
-        int xpReward = (result.isMastered() || result.qualityScore() >= 4) ? 75 : 50;
-        try {
-            xpService.awardSrsXp(user, saved.getId(), xpReward, "SRS Recall: " + saved.getSnippetTitle());
-        } catch (Exception e) {
-            log.warn("Could not award SRS XP: {}", e.getMessage());
+        // Award SRS XP (50 XP standard, +25 bonus for mastery) only for legitimate, non-zero reviews
+        if (speed > 0 && accuracy >= 50.0 && result.qualityScore() >= 3) {
+            int xpReward = (result.isMastered() || result.qualityScore() >= 4) ? 75 : 50;
+            try {
+                xpService.awardSrsXp(user, saved.getId(), xpReward, "SRS Recall: " + saved.getSnippetTitle());
+            } catch (Exception e) {
+                log.warn("Could not award SRS XP: {}", e.getMessage());
+            }
         }
 
         // Evaluate milestone achievements for SRS reviews

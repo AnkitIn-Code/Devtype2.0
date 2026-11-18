@@ -26,38 +26,43 @@ const LEGACY_MOCK_TITLES = new Set([
 ]);
 
 export function cleanLegacyMockData() {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    const keysToClean = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith('devtype_srs_deck') || key.startsWith('devtype_cache_srs'))) {
-        keysToClean.push(key);
-      }
-    }
+  if (typeof window === 'undefined') return;
+  const storages = [window.localStorage, window.sessionStorage].filter(Boolean);
 
-    for (const key of keysToClean) {
-      try {
-        const raw = localStorage.getItem(key);
-        if (!raw) continue;
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          const cleaned = parsed.filter((c) => {
-            const id = String(c?.snippetId || c?.id || '');
-            const title = String(c?.title || '');
-            const isMock = LEGACY_MOCK_IDS.has(id) || LEGACY_MOCK_TITLES.has(title);
-            if (isMock && !c?.hasRealPractice && !c?.lastPracticedSessionId) {
-              return false;
-            }
-            return true;
-          });
-          if (cleaned.length === 0) {
-            localStorage.removeItem(key);
-          } else if (cleaned.length !== parsed.length) {
-            localStorage.setItem(key, JSON.stringify(cleaned));
-          }
+  try {
+    for (const storage of storages) {
+      const keysToClean = [];
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key && (key.startsWith('devtype_srs_deck') || key.startsWith('devtype_cache_srs'))) {
+          keysToClean.push(key);
         }
-      } catch (_) {}
+      }
+
+      for (const key of keysToClean) {
+        try {
+          const raw = storage.getItem(key);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((c) => {
+              const id = String(c?.snippetId || c?.id || '');
+              const title = String(c?.title || '');
+              const isMock = LEGACY_MOCK_IDS.has(id) || LEGACY_MOCK_TITLES.has(title);
+              // Strictly reject any unverified mock cards
+              if (isMock && !c?.isServerVerified && !c?.serverSessionId) {
+                return false;
+              }
+              return true;
+            });
+            if (cleaned.length === 0) {
+              storage.removeItem(key);
+            } else if (cleaned.length !== parsed.length) {
+              storage.setItem(key, JSON.stringify(cleaned));
+            }
+          }
+        } catch (_) {}
+      }
     }
   } catch (_) {}
 }
@@ -95,7 +100,7 @@ function getLocalDeck() {
         const id = String(c?.snippetId || c?.id || '');
         const title = String(c?.title || '');
         const isMock = LEGACY_MOCK_IDS.has(id) || LEGACY_MOCK_TITLES.has(title);
-        if (isMock && !c?.hasRealPractice && !c?.lastPracticedSessionId) {
+        if (isMock && !c?.isServerVerified && !c?.serverSessionId) {
           return false;
         }
         return true;

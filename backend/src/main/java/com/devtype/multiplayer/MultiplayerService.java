@@ -144,7 +144,7 @@ public class MultiplayerService {
         }
     }
     private RaceRoom.Player member(RaceRoom r,long id) { return r.players.stream().filter(p->p.id==id).findFirst().orElseThrow(()->new ApiException("Room membership required.",HttpStatus.FORBIDDEN)); }
-    private boolean terminal(RaceRoom r) { return Set.of("COMPLETED","CANCELLED").contains(r.state); }
+    public boolean terminal(RaceRoom r) { return Set.of("COMPLETED","CANCELLED").contains(r.state); }
     private boolean ranked(RaceRoom r) { return r.mode.equals("classic") || r.mode.equals("duel"); }
     private UserSeasonRating rating(User u, RankedSeason season) {
         return ratings.findByUserIdAndSeasonId(u.getId(),season.getId()).orElseGet(()->ratings.saveAndFlush(new UserSeasonRating(u,season,1200,tiers.getTierForRating(1200).name())));
@@ -161,7 +161,7 @@ public class MultiplayerService {
         if (r == null) {
             List<String> ids = db.queryForList("SELECT room_id FROM multiplayer_members WHERE user_id=?", String.class, uid);
             if (!ids.isEmpty()) {
-                r = read(ids.getFirst());
+                try { r = read(ids.getFirst()); } catch (Exception ignored) {}
             }
         }
         if (r != null) {
@@ -175,6 +175,7 @@ public class MultiplayerService {
             save(r);
             return r;
         }
+        userRooms.remove(uid);
         return null;
     }
     public List<Map<String,Object>> catalog() {
@@ -360,16 +361,20 @@ public class MultiplayerService {
         room.players.add(p);
         userRooms.put(u.getId(), room.id);
         if (room.players.size() == room.capacity) {
+            long now = System.currentTimeMillis();
             if (ranked(room) || room.mode.equals("bug-fix")) {
-                long now = System.currentTimeMillis();
                 room.state = "COUNTDOWN";
                 room.startsAt = now + 4000;
                 room.deadline = room.startsAt + 180000;
                 for (RaceRoom.Player pl : room.players) {
                     pl.ready = true;
+                    pl.lastSeen = now;
                 }
             } else {
                 room.state = "READY";
+                for (RaceRoom.Player pl : room.players) {
+                    pl.lastSeen = now;
+                }
             }
         }
     }
@@ -398,9 +403,9 @@ public class MultiplayerService {
         try {
             RaceRoom r = read(cleanId);
             RaceRoom.Player p = member(r, uid);
-            advance(r);
             long now = System.currentTimeMillis();
             p.lastSeen = now;
+            advance(r);
 
             if (type.equals("SYNC")) {
                 save(r);
@@ -550,13 +555,24 @@ public class MultiplayerService {
             r.deadline = r.startsAt + 180000;
             for (RaceRoom.Player pl : r.players) {
                 pl.ready = true;
+                pl.lastSeen = nowTs;
             }
         }
         // Private rooms NEVER expire while in READY state!
         if(r.state.equals("READY") && !r.mode.equals("private-room") && now-r.createdAt>600000) { cancel(r,"Room expired before all players were ready."); return; }
-        if(r.state.equals("COUNTDOWN")&&now>=r.startsAt) r.state="RACING";
+        if(r.state.equals("COUNTDOWN")&&now>=r.startsAt) {
+            r.state="RACING";
+            for (RaceRoom.Player pl : r.players) {
+                pl.lastSeen = now;
+            }
+        }
         if(r.state.equals("RACING")) {
-            for(RaceRoom.Player p:r.players) if(p.finishedAt==0&&now-p.lastSeen>reconnect*1000) p.forfeited=true;
+            for(RaceRoom.Player p:r.players) {
+                if(p.finishedAt==0 && !p.forfeited && now-p.lastSeen>reconnect*1000) {
+                    p.forfeited=true;
+                    log.info("Player {} forfeited in room {} due to inactivity (lastSeen was {}ms ago)", p.name, r.id, now-p.lastSeen);
+                }
+            }
             boolean allFinishedOrForfeited = r.players.stream().allMatch(p->p.finishedAt>0||p.forfeited);
             if(now>=r.deadline||allFinishedOrForfeited) finish(r,now);
         } else if(ranked(r) && r.state.equals("COUNTDOWN")) {
@@ -609,12 +625,16 @@ public class MultiplayerService {
     }
     private boolean sameResult(RaceRoom.Player a,RaceRoom.Player b) { return a.forfeited==b.forfeited&&a.finishedAt==b.finishedAt&&a.progress==b.progress&&a.errors==b.errors&&a.score==b.score; }
     public void tick() {
+        long now = System.currentTimeMillis();
         for (RaceRoom r : new ArrayList<>(activeRooms.values())) {
             if (!terminal(r)) {
                 advance(r);
                 if (terminal(r)) {
                     save(r);
                 }
+            } else if (r.deadline > 0 && now - r.deadline > 120000) {
+                activeRooms.remove(r.id);
+                db.update("DELETE FROM multiplayer_members WHERE room_id=?", r.id);
             }
         }
     }

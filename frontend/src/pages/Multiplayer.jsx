@@ -260,6 +260,15 @@ export default function Multiplayer() {
       .then((activeRoom) => {
         if (!alive) return;
         if (activeRoom && ['SEARCHING', 'READY', 'COUNTDOWN', 'RACING'].includes(activeRoom.state)) {
+          const myPlayer = activeRoom.players?.find(p => String(p.id) === String(user?.id));
+          if (myPlayer?.forfeited) {
+            sessionStorage.removeItem('devtype_active_room_id');
+            sessionStorage.removeItem('devtype_active_room_mode');
+            setRoom(null);
+            latestRoomRef.current = null;
+            setActiveView('lobby');
+            return;
+          }
           sessionStorage.setItem('devtype_active_room_id', activeRoom.id);
           sessionStorage.setItem('devtype_active_room_mode', activeRoom.mode);
           setRoom(activeRoom);
@@ -961,6 +970,26 @@ export default function Multiplayer() {
             isRanked={(room || latestRoomRef.current)?.mode === 'classic' || (room || latestRoomRef.current)?.mode === 'duel'}
           />
         </ErrorBoundary>
+      )}
+
+      {activeView === 'racing' && !room && !latestRoomRef.current && (
+        <div style={{ padding: '80px 20px', textAlign: 'center', maxWidth: 480, margin: '0 auto' }}>
+          <RefreshCw size={36} className="animate-spin" style={{ margin: '0 auto 16px', color: '#3B82F6' }} />
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+            Connecting to Live Match...
+          </h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 24 }}>
+            Synchronizing arena state with the game server.
+          </p>
+          <button
+            type="button"
+            className="mp-btn-secondary"
+            onClick={handleLeaveMatch}
+            style={{ padding: '8px 24px', borderRadius: 8, cursor: 'pointer' }}
+          >
+            Return to Multiplayer Lobby
+          </button>
+        </div>
       )}
 
       {/* ============================================================

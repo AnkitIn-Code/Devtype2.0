@@ -1,5 +1,7 @@
 // src/utils/sessionSync.js
 import { getSavedSessions, saveUserSession } from './reportStore';
+import { practiceService } from '../services/practiceService';
+import { dataCache } from '../services/dataCache';
 
 /**
  * Normalizes any session object into a standard representation with consistent property names.
@@ -272,4 +274,43 @@ export function syncCompletedSession(session, userId) {
     window.dispatchEvent(new CustomEvent('storage', { detail: { key: `devtype_sessions_${userId}` } }));
   }
   return normalized;
+}
+
+let isSyncingPending = false;
+
+/**
+ * Practice sessions must strictly be generated via active typing drills in the editor.
+ * Background synthetic session fabrication is strictly disabled.
+ */
+export async function syncPendingSessionsToServer(userId) {
+  return Promise.resolve();
+}
+
+let isSyncingServer = false;
+
+/**
+ * Pulls down the user's completed sessions from the database and updates local cache.
+ */
+export async function syncUserSessionsFromServer(userId) {
+  if (!userId || isSyncingServer || typeof window === 'undefined') return;
+  const token = localStorage.getItem('devtype_auth_token');
+  if (!token) return;
+
+  isSyncingServer = true;
+  try {
+    const res = await practiceService.getUserSessions({ status: 'COMPLETED', size: 100 });
+    const serverSessions = res?.items || res?.content || (Array.isArray(res) ? res : []);
+
+    if (Array.isArray(serverSessions) && serverSessions.length > 0) {
+      const normalized = serverSessions.map(normalizeSession).filter(Boolean);
+      localStorage.setItem(`devtype_sessions_${userId}`, JSON.stringify(normalized));
+      dataCache.setSessions(userId, normalized);
+      window.dispatchEvent(new CustomEvent('devtype_cache_revalidated', { detail: { type: 'sessions', userId } }));
+      return normalized;
+    }
+  } catch (err) {
+    console.warn('Could not sync user sessions from server:', err);
+  } finally {
+    isSyncingServer = false;
+  }
 }

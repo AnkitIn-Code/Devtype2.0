@@ -190,7 +190,10 @@ export function connectMultiplayer({ onState, onStatus, onError, onChat }) {
           }
         }, 5000);
       }
-      if (frame.type === 'STATE') { roomId = frame.room.id; onState(frame.room, frame.serverTime); }
+      if (frame.type === 'STATE') {
+        roomId = frame.room?.id || null;
+        onState(frame.room, frame.serverTime);
+      }
       if (frame.type === 'CHAT' && onChat) { onChat(frame.chat, frame.serverTime); }
       if (frame.type === 'LEFT') { roomId = null; onState(null, Date.now()); }
       if (frame.type === 'ERROR') onError(frame.message);

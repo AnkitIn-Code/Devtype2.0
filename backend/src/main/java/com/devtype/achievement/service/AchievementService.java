@@ -246,7 +246,7 @@ public class AchievementService {
             // Award achievement XP
             xpService.awardAchievementXp(user, ach);
 
-            log.info("Achievement unlocked for user {}: {}", user.getUsername(), ach.getName());
+            log.debug("Achievement unlocked for user {}: {}", user.getUsername(), ach.getName());
             newlyUnlocked.add(new AchievementResponse(
                     ach.getId(),
                     ach.getCode(),

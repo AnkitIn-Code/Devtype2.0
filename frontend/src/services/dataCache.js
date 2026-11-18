@@ -42,6 +42,40 @@ function safeStorageSet(key, val) {
   } catch {}
 }
 
+function normalizeCachedSession(s) {
+  if (!s) return null;
+  const dateStr = s.completedAt || s.date || s.startedAt || new Date().toISOString();
+  const netWpm = Math.round(Number(s.netWpm ?? s.wpm ?? 0));
+  const grossWpm = Math.round(Number(s.grossWpm ?? netWpm));
+  const accuracy = Math.round(Number(s.accuracyPercent ?? s.accuracy ?? 100));
+  const durationSec = Math.round(Number(s.durationSeconds ?? (s.durationMs ? s.durationMs / 1000 : 0)));
+  const title = s.templateTitle || s.snippetTitle || s.title || 'Practice Sprint';
+  const lang = s.language || 'Code';
+  const diff = s.difficulty || 'Intermediate';
+
+  return {
+    ...s,
+    id: String(s.id || `sess_${Date.now()}`),
+    date: dateStr,
+    completedAt: dateStr,
+    wpm: netWpm,
+    netWpm,
+    grossWpm,
+    accuracy,
+    accuracyPercent: accuracy,
+    durationSeconds: durationSec,
+    durationMs: durationSec * 1000,
+    title,
+    snippetTitle: title,
+    templateTitle: title,
+    language: lang,
+    difficulty: diff,
+    errors: s.errors ?? s.errorCount ?? 0,
+    totalCharacters: s.totalCharacters ?? (netWpm * 5),
+    isServerVerified: true,
+  };
+}
+
 export const dataCache = {
   // ── Dashboard Summary ──
   getDashboard(userId) {
@@ -65,25 +99,31 @@ export const dataCache = {
     }
   },
 
-  // ── Sessions ──
+  // ── Sessions (Normalized and Synchronously Accessible) ──
   getSessions(userId) {
     const uid = userId || 'anon';
+    let list = null;
     if (MEM_CACHE.sessions.has(uid)) {
-      return MEM_CACHE.sessions.get(uid);
+      list = MEM_CACHE.sessions.get(uid);
+    } else {
+      const fromStorage = safeStorageGet(`devtype_cache_sess_${uid}`);
+      if (fromStorage) {
+        list = fromStorage;
+        MEM_CACHE.sessions.set(uid, fromStorage);
+      }
     }
-    const fromStorage = safeStorageGet(`devtype_cache_sess_${uid}`);
-    if (fromStorage) {
-      MEM_CACHE.sessions.set(uid, fromStorage);
-      return fromStorage;
+    if (list && Array.isArray(list)) {
+      return list.map(normalizeCachedSession).filter(Boolean);
     }
     return null;
   },
 
   setSessions(userId, sessions) {
     const uid = userId || 'anon';
-    if (sessions) {
-      MEM_CACHE.sessions.set(uid, sessions);
-      safeStorageSet(`devtype_cache_sess_${uid}`, sessions);
+    if (sessions && Array.isArray(sessions)) {
+      const normalized = sessions.map(normalizeCachedSession).filter(Boolean);
+      MEM_CACHE.sessions.set(uid, normalized);
+      safeStorageSet(`devtype_cache_sess_${uid}`, normalized);
     }
   },
 
@@ -127,7 +167,7 @@ export const dataCache = {
           const id = String(c?.snippetId || c?.id || '');
           const title = String(c?.title || '');
           const isMock = mockIds.has(id) || mockTitles.has(title);
-          return !isMock || c?.hasRealPractice || c?.lastPracticedSessionId;
+          return !isMock || Boolean(c?.isServerVerified && c?.serverSessionId);
         });
         if (cleaned.length !== stored.length) {
           safeStorageSet(`devtype_cache_srsdue_${uid}`, cleaned);
@@ -168,7 +208,7 @@ export const dataCache = {
           const id = String(c?.snippetId || c?.id || '');
           const title = String(c?.title || '');
           const isMock = mockIds.has(id) || mockTitles.has(title);
-          return !isMock || c?.hasRealPractice || c?.lastPracticedSessionId;
+          return !isMock || Boolean(c?.isServerVerified && c?.serverSessionId);
         });
         if (cleaned.length !== stored.length) {
           safeStorageSet(`devtype_cache_srsdeck_${uid}`, cleaned);
@@ -366,7 +406,11 @@ export const dataCache = {
       .then((res) => {
         const items = res?.items || [];
         if (items.length > 0) {
-          this.setSessions(userId, items);
+          const completedOnly = items
+            .filter((s) => s.status === 'COMPLETED' || !s.status)
+            .map(normalizeCachedSession)
+            .filter(Boolean);
+          this.setSessions(userId, completedOnly);
         }
         return items;
       })

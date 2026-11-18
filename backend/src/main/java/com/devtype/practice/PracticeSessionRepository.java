@@ -47,7 +47,7 @@ public interface PracticeSessionRepository extends JpaRepository<PracticeSession
             COALESCE(SUM(s.durationMs), 0) as totalDurationMs,
             COALESCE(SUM(s.totalCharacters), 0) as totalCharacters
         FROM PracticeSession s
-        WHERE s.user.id = :userId AND s.status = :status
+        WHERE s.user.id = :userId AND s.status = :status AND s.netWpm <= 200.00
     """)
     SessionPerformanceSummary getPerformanceSummary(@Param("userId") Long userId, @Param("status") PracticeSessionStatus status);
 
@@ -62,7 +62,7 @@ public interface PracticeSessionRepository extends JpaRepository<PracticeSession
             COALESCE(AVG(s.accuracyPercent), 0) as avgAccuracy,
             COALESCE(SUM(s.totalCharacters), 0) as totalCharacters
         FROM PracticeSession s
-        WHERE s.status = :status AND s.startedAt >= :since
+        WHERE s.status = :status AND s.startedAt >= :since AND s.netWpm <= 200.00
         GROUP BY s.user.id
     """)
     List<UserPerformanceRow> getLeaderboardStatsSince(@Param("status") PracticeSessionStatus status, @Param("since") Instant since);
@@ -75,7 +75,7 @@ public interface PracticeSessionRepository extends JpaRepository<PracticeSession
             COALESCE(AVG(s.accuracyPercent), 0) as avgAccuracy,
             COALESCE(SUM(s.totalCharacters), 0) as totalCharacters
         FROM PracticeSession s
-        WHERE s.status = :status
+        WHERE s.status = :status AND s.netWpm <= 200.00
         GROUP BY s.user.id
     """)
     List<UserPerformanceRow> getAllTimeLeaderboardStats(@Param("status") PracticeSessionStatus status);

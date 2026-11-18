@@ -25,11 +25,12 @@ const TRACKS = [
 /**
  * Expands blueprints so that every supported language implementation
  * receives its own dedicated card with language badge, code, and direct drill action.
+ * Assigns a permanent canonical catalogIndex to guarantee deterministic ordering.
  */
 function expandBlueprintsByLanguage(blueprintsList) {
   const result = [];
   const seen = new Set();
-  (blueprintsList || []).forEach((bp) => {
+  (blueprintsList || []).forEach((bp, bpIdx) => {
     const langs = bp.languages && bp.languages.length > 0 ? bp.languages : Object.keys(bp.codeByLanguage || {});
     if (langs.length <= 1) {
       const lang = langs[0] || bp.language || 'C++';
@@ -38,13 +39,14 @@ function expandBlueprintsByLanguage(blueprintsList) {
         ...bp,
         key: slug,
         slug,
+        catalogIndex: bpIdx * 10,
         languages: [lang],
         language: lang,
         code: bp.codeByLanguage?.[lang] || bp.codeSnippet || bp.code || '',
         codeSnippet: bp.codeByLanguage?.[lang] || bp.codeSnippet || bp.code || '',
       });
     } else {
-      langs.forEach((lang) => {
+      langs.forEach((lang, lIdx) => {
         const langCode = bp.codeByLanguage?.[lang] || bp.codeSnippet || bp.code || '';
         if (!langCode) return;
         const slug = bp.slugs?.[lang] || `${bp.key || bp.slug}-${lang.toLowerCase().replace('+', 'p')}`;
@@ -54,6 +56,7 @@ function expandBlueprintsByLanguage(blueprintsList) {
             ...bp,
             key: slug,
             slug,
+            catalogIndex: bpIdx * 10 + lIdx,
             title: `${bp.title} (${lang})`,
             languages: [lang],
             language: lang,
@@ -92,42 +95,57 @@ export default function Templates() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
 
-  // Load server database templates if available, staying in 100% sync with Admin Studio
+  // Load server database templates if available, preserving authoritative canonical order
   useEffect(() => {
     let isMounted = true;
     async function loadCatalog() {
       setIsLoading(true);
       try {
+        const baseCatalog = expandBlueprintsByLanguage(PREDEFINED_BLUEPRINTS);
+        const knownSlugs = new Set(baseCatalog.map((b) => b.slug || b.key || b.id));
+
         const dbSnippets = await snippetService.getAllSnippets();
         if (isMounted && Array.isArray(dbSnippets) && dbSnippets.length > 0) {
-          const mapped = dbSnippets.map((s) => {
-            const lang = s.language || 'C++';
+          // Identify custom user/admin snippets not already in the canonical base catalog
+          const customSnippets = dbSnippets.filter((s) => {
             const slug = s.slug || `snippet-${s.id}`;
-            const diff = s.difficulty ? (s.difficulty.charAt(0).toUpperCase() + s.difficulty.slice(1).toLowerCase()) : 'Intermediate';
-            return {
-              key: slug,
-              id: slug,
-              numericId: s.id,
-              slug,
-              title: s.title,
-              category: s.category || 'Algorithms & DSA',
-              difficulty: diff,
-              description: s.description || `${s.category} drill in ${lang}`,
-              languages: [lang],
-              language: lang,
-              codeByLanguage: { [lang]: s.code },
-              codeSnippet: s.code,
-              code: s.code,
-              content: s.code,
-              track: s.subCategory || 'foundations',
-              tags: Array.isArray(s.tags) ? s.tags : (s.tags ? s.tags.split(',') : []),
-              timeComplexity: s.timeComplexity || '',
-              spaceComplexity: s.spaceComplexity || '',
-            };
+            return (s.isCustom && !s.isCurated) || !knownSlugs.has(slug);
           });
-          setBlueprints(mapped);
+
+          if (customSnippets.length > 0) {
+            const mappedCustom = customSnippets.map((s, idx) => {
+              const lang = s.language || 'C++';
+              const slug = s.slug || `snippet-${s.id}`;
+              const diff = s.difficulty ? (s.difficulty.charAt(0).toUpperCase() + s.difficulty.slice(1).toLowerCase()) : 'Intermediate';
+              return {
+                key: slug,
+                id: slug,
+                numericId: s.id,
+                slug,
+                catalogIndex: 100000 + idx,
+                title: s.title,
+                category: s.category || 'Custom Drills',
+                difficulty: diff,
+                description: s.description || `${s.category || 'Custom'} drill in ${lang}`,
+                languages: [lang],
+                language: lang,
+                codeByLanguage: { [lang]: s.code },
+                codeSnippet: s.code,
+                code: s.code,
+                content: s.code,
+                track: s.subCategory || 'cp',
+                tags: Array.isArray(s.tags) ? s.tags : (s.tags ? s.tags.split(',') : []),
+                timeComplexity: s.timeComplexity || '',
+                spaceComplexity: s.spaceComplexity || '',
+                isCustom: true,
+              };
+            });
+            setBlueprints([...baseCatalog, ...mappedCustom]);
+          } else {
+            setBlueprints(baseCatalog);
+          }
         } else if (isMounted) {
-          setBlueprints(expandBlueprintsByLanguage(PREDEFINED_BLUEPRINTS));
+          setBlueprints(baseCatalog);
         }
       } catch (err) {
         console.warn('Using local authoritative blueprints catalog:', err.message);
@@ -162,9 +180,9 @@ export default function Templates() {
     return ['All', ...Array.from(set)];
   }, [blueprints]);
 
-  // Filtered Blueprints
+  // Filtered Blueprints (Deterministic ordering by canonical catalogIndex)
   const filteredBlueprints = useMemo(() => {
-    return blueprints.filter((b) => {
+    const list = blueprints.filter((b) => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -189,6 +207,8 @@ export default function Templates() {
 
       return matchesSearch && matchesTrack && matchesCat && matchesDiff && matchesLang;
     });
+
+    return [...list].sort((a, b) => (a.catalogIndex ?? 0) - (b.catalogIndex ?? 0));
   }, [blueprints, searchQuery, selectedTrack, selectedCategory, selectedDifficulty, selectedLanguage]);
 
   // Reset pagination to page 1 on filter or search change
@@ -449,7 +469,10 @@ export default function Templates() {
             <button
               key={track.id}
               type="button"
-              onClick={() => setSelectedTrack(track.id)}
+              onClick={() => {
+                setSelectedTrack(track.id);
+                setCurrentPage(1);
+              }}
               className={`btn btn-xs ${selectedTrack === track.id ? 'btn-primary' : 'btn-secondary-glass'}`}
               style={{ padding: '4px 10px', fontSize: '0.74rem' }}
             >
@@ -465,7 +488,10 @@ export default function Templates() {
             <input
               type="search"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               placeholder="Search blueprints (e.g. Binary Search, Quick Sort, React, C++)..."
               className="search-input"
               style={{ height: 38 }}
@@ -477,7 +503,10 @@ export default function Templates() {
             {/* Category Select */}
             <select
               value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
+              onChange={(e) => {
+                setSelectedCategory(e.target.value);
+                setCurrentPage(1);
+              }}
               className="btn btn-secondary-glass btn-sm"
               style={{ height: 38, padding: '0 12px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--t1)', background: 'var(--bg-surface)' }}
             >
@@ -491,7 +520,10 @@ export default function Templates() {
             {/* Language Select */}
             <select
               value={selectedLanguage}
-              onChange={(e) => setSelectedLanguage(e.target.value)}
+              onChange={(e) => {
+                setSelectedLanguage(e.target.value);
+                setCurrentPage(1);
+              }}
               className="btn btn-secondary-glass btn-sm"
               style={{ height: 38, padding: '0 12px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--t1)', background: 'var(--bg-surface)' }}
             >
@@ -507,7 +539,10 @@ export default function Templates() {
               {['All', 'Beginner', 'Intermediate', 'Advanced'].map((diff) => (
                 <button
                   key={diff}
-                  onClick={() => setSelectedDifficulty(diff)}
+                  onClick={() => {
+                    setSelectedDifficulty(diff);
+                    setCurrentPage(1);
+                  }}
                   className={`btn btn-sm ${selectedDifficulty === diff ? 'btn-primary' : 'btn-ghost'}`}
                   style={{ height: 32, padding: '0 10px', fontSize: '0.74rem' }}
                 >
@@ -574,6 +609,7 @@ export default function Templates() {
                 setSelectedCategory('All');
                 setSelectedDifficulty('All');
                 setSelectedLanguage('All');
+                setCurrentPage(1);
               }}
               className="btn btn-ghost btn-sm"
               style={{ fontSize: '0.72rem', height: 26, padding: '0 8px', color: 'var(--brand)' }}

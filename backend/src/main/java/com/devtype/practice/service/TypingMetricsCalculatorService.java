@@ -16,7 +16,7 @@ import java.time.Instant;
 public class TypingMetricsCalculatorService {
 
     public static final long MINIMUM_DURATION_MS = 1000L;
-    public static final double MAXIMUM_PLAUSIBLE_WPM = 350.0;
+    public static final double MAXIMUM_PLAUSIBLE_WPM = 200.0;
 
     /**
      * Container record for server-calculated typing metrics.
@@ -74,22 +74,18 @@ public class TypingMetricsCalculatorService {
                         "Submitted correct characters (" + correctChars + ") exceeds template length (" + refLength + ")"
                 );
             }
-
-            // Flag impossible typing speeds for non-trivial snippets
-            if (refLength >= 40) {
-                double minutes = durationMs / 60000.0;
-                double calculatedWpm = (correctChars / 5.0) / minutes;
-                if (calculatedWpm > MAXIMUM_PLAUSIBLE_WPM) {
-                    throw new IllegalArgumentException(
-                            "Calculated typing speed (" + Math.round(calculatedWpm) + " WPM) exceeds maximum plausible rate (" + (int) MAXIMUM_PLAUSIBLE_WPM + " WPM)"
-                    );
-                }
-            }
         }
 
         double minutes = durationMs / 60000.0;
         double calculatedGrossWpm = minutes > 0 ? (totalCharacters / 5.0) / minutes : 0.0;
         double calculatedNetWpm = minutes > 0 ? Math.max(0.0, (correctChars / 5.0) / minutes) : 0.0;
+
+        // Flag physically impossible code typing speeds (> 200 WPM)
+        if (calculatedNetWpm > MAXIMUM_PLAUSIBLE_WPM || calculatedGrossWpm > MAXIMUM_PLAUSIBLE_WPM) {
+            throw new IllegalArgumentException(
+                    "Calculated typing speed (" + Math.round(calculatedNetWpm) + " WPM) exceeds maximum plausible human code typing rate (" + (int) MAXIMUM_PLAUSIBLE_WPM + " WPM)"
+            );
+        }
 
         double calculatedAccuracy = totalCharacters > 0
                 ? Math.min(100.0, Math.max(0.0, (correctChars * 100.0) / totalCharacters))
@@ -113,17 +109,15 @@ public class TypingMetricsCalculatorService {
 
     /**
      * Determines the authoritative elapsed duration in milliseconds.
-     * Prefers client duration if provided within a reasonable tolerance of server duration,
-     * but always guarantees a minimum threshold and prevents forward clock drift.
+     * Prefers client duration if provided within reasonable bounds,
+     * guarantees a minimum threshold and prevents forward clock drift.
      */
     private long determineEffectiveDuration(long serverElapsedMs, Long clientElapsedMs) {
-        if (clientElapsedMs == null || clientElapsedMs <= 0) {
-            return Math.max(MINIMUM_DURATION_MS, serverElapsedMs);
+        if (clientElapsedMs != null && clientElapsedMs >= MINIMUM_DURATION_MS) {
+            // Client reported duration is authoritative for interactive browser typing sprints.
+            // Cap at 24 hours (86_400_000 ms) to prevent overflow/unreasonable values.
+            return Math.min(clientElapsedMs, 86_400_000L);
         }
-
-        // Bound client duration: cannot exceed server elapsed time by more than 5 seconds
-        long maxAllowed = serverElapsedMs + 5000L;
-        long boundedClient = Math.min(clientElapsedMs, maxAllowed);
-        return Math.max(MINIMUM_DURATION_MS, boundedClient);
+        return Math.max(MINIMUM_DURATION_MS, serverElapsedMs);
     }
 }

@@ -206,6 +206,25 @@ function ReportsEmptyState({ username, onStartPractice }) {
 }
 
 /* ================================================================
+   LOADING SKELETON COMPONENT
+   ================================================================ */
+function ReportsLoadingSkeleton() {
+  return (
+    <div className="reports-empty-card" style={{ padding: '60px 20px', textAlign: 'center' }}>
+      <div className="reports-empty-icon-wrap" style={{ margin: '0 auto 16px' }}>
+        <RotateCcw size={28} className="spin-anim" style={{ color: 'var(--brand-primary, #6366f1)' }} />
+      </div>
+      <h3 className="reports-empty-title" style={{ marginBottom: '8px' }}>
+        Loading Performance Telemetry
+      </h3>
+      <p className="reports-empty-desc" style={{ maxWidth: '420px', margin: '0 auto' }}>
+        Synchronizing authentic typing drills and keystroke velocity logs from the database...
+      </p>
+    </div>
+  );
+}
+
+/* ================================================================
    MAIN REPORTS PAGE COMPONENT
    ================================================================ */
 export default function Reports() {
@@ -215,25 +234,42 @@ export default function Reports() {
   // ── Dataset Selection State with Synchronous Eager Hydration ──
   const cachedSess = useMemo(() => dataCache.getSessions(user?.id) || [], [user?.id]);
   const [serverSessions, setServerSessions] = useState(() => cachedSess);
-  const [localSessions, setLocalSessions] = useState(() => getSavedSessions(user?.id));
+  const [localSessions, setLocalSessions] = useState(() => (user?.id ? [] : getSavedSessions(user?.id)));
   const [selectedRange, setSelectedRange] = useState('30d');
   const [chartSeriesMode, setChartSeriesMode] = useState('both'); // 'both' | 'wpm' | 'acc'
   const [tableSearch, setTableSearch] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(() => {
+    if (!user?.id) return false;
+    const cached = dataCache.getSessions(user?.id);
+    return !cached || cached.length === 0;
+  });
 
   // ── Pagination State ──
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // Keep serverSessions in sync with cached sessions as soon as available
+  useEffect(() => {
+    if (cachedSess && cachedSess.length > 0 && serverSessions.length === 0) {
+      setServerSessions(cachedSess);
+      setIsLoading(false);
+    }
+  }, [cachedSess, serverSessions.length]);
+
   // Sync sessions from authenticated backend API and local store
   const fetchSessions = useCallback(() => {
-    setLocalSessions(getSavedSessions(user?.id));
+    if (!user?.id) {
+      setLocalSessions(getSavedSessions());
+      setIsLoading(false);
+      return;
+    }
     practiceService
       .getUserSessions({ page: 0, size: 100, sort: 'completedAt,desc' })
       .then((res) => {
         if (!res?.items) return;
         const normalized = res.items
-          .filter((s) => s.status === 'COMPLETED')
+          .filter((s) => s.status === 'COMPLETED' || !s.status)
           .map((s) => ({
             id: s.id,
             date: s.completedAt || s.startedAt,
@@ -250,13 +286,14 @@ export default function Reports() {
             isServerVerified: true,
           }));
 
-        if (normalized.length > 0) {
-          setServerSessions(normalized);
-          dataCache.setSessions(user?.id, normalized);
-        }
+        setServerSessions(normalized);
+        dataCache.setSessions(user?.id, normalized);
       })
       .catch((err) => {
         console.warn('Could not sync user sessions from backend:', err);
+      })
+      .finally(() => {
+        setIsLoading(false);
       });
   }, [user?.id]);
 
@@ -265,7 +302,10 @@ export default function Reports() {
     const handleSessionCompleted = () => fetchSessions();
     const handleCacheRevalidated = () => {
       const fresh = dataCache.getSessions(user?.id);
-      if (fresh && fresh.length > 0) setServerSessions(fresh);
+      if (fresh && fresh.length > 0) {
+        setServerSessions(fresh);
+        setIsLoading(false);
+      }
     };
     window.addEventListener('devtype_session_completed', handleSessionCompleted);
     window.addEventListener('devtype_cache_revalidated', handleCacheRevalidated);
@@ -275,10 +315,14 @@ export default function Reports() {
     };
   }, [fetchSessions, user?.id]);
 
-  // ── Merge Server & Local Sessions consistently ──
+  // ── Authoritative Server Sessions for Authenticated User ──
+  // Authenticated users strictly use server database sessions. Never fall back to mismatched local mock sessions.
   const rawSessions = useMemo(() => {
+    if (user?.id) {
+      return serverSessions;
+    }
     return mergeSessions(serverSessions, localSessions);
-  }, [localSessions, serverSessions]);
+  }, [localSessions, serverSessions, user?.id]);
 
   const hasRealSessions = rawSessions.length > 0;
 
@@ -472,8 +516,10 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* ── Empty State Handling ── */}
-      {isEmpty ? (
+      {/* ── Loading / Empty State Handling ── */}
+      {isLoading && isEmpty ? (
+        <ReportsLoadingSkeleton />
+      ) : isEmpty ? (
         <ReportsEmptyState
           username={user?.username}
           onStartPractice={() => navigate('/templates')}

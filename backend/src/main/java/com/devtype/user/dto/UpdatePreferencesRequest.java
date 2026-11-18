@@ -15,6 +15,11 @@ public record UpdatePreferencesRequest(
         @Size(max = 50, message = "Default difficulty must not exceed 50 characters")
         String defaultDifficulty,
 
-        Boolean soundEnabled
+        Boolean soundEnabled,
+
+        String practiceShortcuts
 ) {
+    public UpdatePreferencesRequest(String theme, String defaultLanguage, String defaultDifficulty, Boolean soundEnabled) {
+        this(theme, defaultLanguage, defaultDifficulty, soundEnabled, null);
+    }
 }

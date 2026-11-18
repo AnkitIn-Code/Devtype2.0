@@ -60,7 +60,7 @@ export default function MultiplayerRaceEditor({
       try {
         send('READY', {});
       } catch (err) {
-        console.warn('Auto-ready send deferred:', err.message);
+        console.debug('Auto-ready send deferred:', err.message);
       }
     }
   }, [room?.state, isRanked, me?.ready, send]);
@@ -256,11 +256,12 @@ export default function MultiplayerRaceEditor({
   };
 
   const sendInput = (content) => {
+    if (me?.forfeited || !isRacing) return;
     sequenceRef.current += 1;
     try {
       send('INPUT', { content, sequence: sequenceRef.current });
     } catch (err) {
-      console.warn('Race input buffered (socket offline):', err.message);
+      console.debug('Race input buffered (socket offline):', err.message);
     }
   };
 
@@ -400,7 +401,47 @@ export default function MultiplayerRaceEditor({
                 <span>Template Completed! Finalizing Results...</span>
               </div>
             )}
-            {!isFocused && isRacing && !isFinished && (
+            {me?.forfeited && (
+              <div
+                className="mp-finish-banner"
+                style={{
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#EF4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertCircle size={18} />
+                  <span style={{ fontWeight: 600, fontSize: '13px' }}>
+                    You have forfeited or left this match. Keystrokes are disabled.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onLeave}
+                  style={{
+                    padding: '5px 14px',
+                    borderRadius: '6px',
+                    background: '#EF4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Return to Lobby
+                </button>
+              </div>
+            )}
+            {!isFocused && isRacing && !isFinished && !me?.forfeited && (
               <div
                 className="editor-focus-overlay animate-fade-in"
                 onClick={(e) => {
@@ -425,8 +466,9 @@ export default function MultiplayerRaceEditor({
               ref={inputRef}
               className="mp-hidden-input"
               value={input}
+              disabled={me?.forfeited}
               onChange={() => {}}
-              onFocus={() => setIsFocused(true)}
+              onFocus={() => { if (!me?.forfeited) setIsFocused(true); }}
               onBlur={() => setIsFocused(false)}
               onKeyDown={handleKeyDown}
               onPaste={(e) => {

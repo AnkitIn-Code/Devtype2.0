@@ -31,6 +31,9 @@ public class UserPreferences extends AuditableEntity {
     @Column(name = "sound_enabled", nullable = false)
     private boolean soundEnabled = true;
 
+    @Column(name = "practice_shortcuts", columnDefinition = "TEXT")
+    private String practiceShortcuts;
+
     public UserPreferences() {
         super();
     }
@@ -41,6 +44,7 @@ public class UserPreferences extends AuditableEntity {
         this.defaultLanguage = "javascript";
         this.defaultDifficulty = "INTERMEDIATE";
         this.soundEnabled = true;
+        this.practiceShortcuts = null;
     }
 
     public User getUser() {
@@ -81,5 +85,13 @@ public class UserPreferences extends AuditableEntity {
 
     public void setSoundEnabled(boolean soundEnabled) {
         this.soundEnabled = soundEnabled;
+    }
+
+    public String getPracticeShortcuts() {
+        return practiceShortcuts;
+    }
+
+    public void setPracticeShortcuts(String practiceShortcuts) {
+        this.practiceShortcuts = practiceShortcuts;
     }
 }

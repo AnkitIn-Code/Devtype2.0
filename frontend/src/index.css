@@ -16972,11 +16972,38 @@ body:has(.practice-workspace-root),
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .ws-item-wrapper .ws-item {
-  flex: 1;
-  padding-right: 32px;
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100%;
+  padding-right: 36px !important;
+  box-sizing: border-box;
+}
+
+.ws-item-wrapper .ws-info {
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ws-item-wrapper .ws-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+}
+
+.ws-item-wrapper .ws-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
 }
 
 .ws-quick-remove {
@@ -19726,7 +19753,7 @@ body:has(.practice-workspace-root),
   font-style: italic;
 }
 
-.theory-article pre {
+.theory-article pre:not(.vscode-code-body) {
   background-color: #090e17;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
@@ -19829,24 +19856,126 @@ body:has(.practice-workspace-root),
 }
 
 /* ── VS Code Code Theme & Editor Card Styling ── */
+.theory-article .vscode-code-card,
 .vscode-code-card {
-  position: relative;
+  position: relative !important;
   background-color: #1e1e1e !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: #1e1e1e !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 12px !important;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45) !important;
   font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace !important;
+  overflow: hidden !important;
+  margin: 1.5rem 0 !important;
+}
+
+.theory-article .vscode-code-card pre,
+.theory-article pre.vscode-code-body,
+.vscode-code-card pre.vscode-code-body,
+.vscode-code-card pre {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+}
+
+.theory-article .vscode-code-card code,
+.vscode-code-card code {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
 }
 
 .vscode-code-card .vscode-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 14px !important;
   background-color: #252526 !important;
+  background: #252526 !important;
   border-bottom: 1px solid #333333 !important;
+  user-select: none !important;
+  box-sizing: border-box !important;
+}
+
+.vscode-code-card .vscode-header-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.vscode-code-card .vscode-traffic-lights {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
 }
 
 .vscode-code-card .vscode-tab {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 10px !important;
+  border-radius: 4px !important;
   background-color: #1e1e1e !important;
   border-top: 2px solid #007acc !important;
   color: #cccccc !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+}
+
+.vscode-code-card .vscode-header-right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.vscode-code-card .vscode-lang-badge {
+  font-size: 10px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 3px 8px !important;
+  border-radius: 4px !important;
+  background-color: #333333 !important;
+  color: #a0a0a0 !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.vscode-code-card .vscode-copy-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 3px 10px !important;
+  border-radius: 5px !important;
+  background-color: #2d2d2d !important;
+  border: 1px solid #404040 !important;
+  color: #9cdcfe !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 11px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  line-height: 1.4 !important;
+}
+
+.vscode-code-card .vscode-copy-btn:hover {
+  background-color: #383838 !important;
+  color: #ffffff !important;
+  border-color: #555555 !important;
+}
+
+.vscode-code-card .vscode-editor {
+  padding: 14px 16px !important;
+  overflow-x: auto !important;
+  background-color: #1e1e1e !important;
 }
 
 .vscode-line {
@@ -19952,6 +20081,30 @@ body:has(.practice-workspace-root),
 [data-theme='light'] .theory-article {
   color: #0f172a;
 }
+[data-theme='light'] .theory-article .vscode-code-card,
+[data-theme='light'] .vscode-code-card {
+  background-color: #1e1e1e !important;
+  background: #1e1e1e !important;
+  border: 1px solid rgba(0, 0, 0, 0.25) !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22) !important;
+}
+[data-theme='light'] .vscode-code-card .vscode-header {
+  background-color: #252526 !important;
+  background: #252526 !important;
+  border-bottom: 1px solid #333333 !important;
+}
+[data-theme='light'] .vscode-code-card .vscode-tab {
+  background-color: #1e1e1e !important;
+  color: #cccccc !important;
+}
+[data-theme='light'] .vscode-code-card .vscode-editor {
+  background-color: #1e1e1e !important;
+  background: #1e1e1e !important;
+}
+[data-theme='light'] .vscode-code-card .vscode-code-body,
+[data-theme='light'] .vscode-code-card .vscode-line-text {
+  color: #d4d4d4 !important;
+}
 [data-theme='light'] .theory-article h3 {
   color: #0284c7;
   border-bottom-color: rgba(100, 116, 139, 0.2);
@@ -19970,7 +20123,7 @@ body:has(.practice-workspace-root),
 [data-theme='light'] .theory-article em {
   color: #2563eb;
 }
-[data-theme='light'] .theory-article pre {
+[data-theme='light'] .theory-article pre:not(.vscode-code-body) {
   background-color: #f8fafc;
   border-color: #e2e8f0;
 }
@@ -23115,9 +23268,11 @@ body[data-theme='dark'],
 
 .tpl-code-preview pre {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.45;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+  line-height: 1.55;
   font-family: inherit;
   color: inherit;
 }

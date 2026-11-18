@@ -327,8 +327,8 @@ export function getSavedSessions(userId) {
     let raw = null;
     if (userId) {
       raw = localStorage.getItem(`devtype_sessions_${userId}`);
-    }
-    if (!raw) {
+      if (!raw) return [];
+    } else {
       raw = localStorage.getItem('devtype_sessions');
     }
     if (!raw) return [];
@@ -341,7 +341,7 @@ export function getSavedSessions(userId) {
 }
 
 /**
- * Save completed session to user-scoped and global localStorage
+ * Save completed session to user-scoped localStorage
  */
 export function saveUserSession(session, userId) {
   if (!session) return;
@@ -349,16 +349,25 @@ export function saveUserSession(session, userId) {
     const userKey = userId ? `devtype_sessions_${userId}` : 'devtype_sessions';
     const existingRaw = localStorage.getItem(userKey);
     const existing = existingRaw ? JSON.parse(existingRaw) : [];
-    const updated = [session, ...existing.filter((s) => s.id !== session.id)].slice(0, 100);
-    localStorage.setItem(userKey, JSON.stringify(updated));
 
-    // Also mirror into global key for quick access
-    if (userId) {
-      const globalRaw = localStorage.getItem('devtype_sessions');
-      const globalExisting = globalRaw ? JSON.parse(globalRaw) : [];
-      const globalUpdated = [session, ...globalExisting.filter((s) => s.id !== session.id)].slice(0, 100);
-      localStorage.setItem('devtype_sessions', JSON.stringify(globalUpdated));
-    }
+    // Filter out same id or temporary unverified duplicates of the same snippet completed within 30s
+    const isServerSession = !String(session.id).startsWith('sess_');
+    const sessionTime = new Date(session.completedAt || session.date || Date.now()).getTime();
+
+    const filtered = existing.filter((s) => {
+      if (s.id === session.id) return false;
+      if (isServerSession && String(s.id).startsWith('sess_')) {
+        const sTime = new Date(s.completedAt || s.date || 0).getTime();
+        const sameSnippet = s.snippetId === session.snippetId || s.title === session.title;
+        if (sameSnippet && Math.abs(sessionTime - sTime) < 30000) {
+          return false; // Purge temporary unverified clone
+        }
+      }
+      return true;
+    });
+
+    const updated = [session, ...filtered].slice(0, 100);
+    localStorage.setItem(userKey, JSON.stringify(updated));
   } catch (err) {
     console.warn('Failed to save session to localStorage', err);
   }
@@ -521,89 +530,58 @@ export function computeDayDistribution(sessions) {
 
 /**
  * Compute Progression Timeline for Recharts.
- * Aggregates sessions by date so that each day has exactly ONE reading
- * with the average Net WPM, Gross WPM, Accuracy, and total session count for that day.
- * Sorted chronologically (oldest to newest).
+ * Returns each session as an individual chronological point (oldest to newest),
+ * displaying exact WPM, Accuracy, and timestamp without collapsing or averaging
+ * multiple sessions on the same date.
  */
 export function computeProgressionTimeline(sessions) {
   if (!sessions || sessions.length === 0) return [];
 
-  // Group sessions by local calendar date (YYYY-MM-DD)
-  const dayGroups = new Map();
-
-  sessions.forEach((s) => {
-    const d = new Date(s.date);
-    if (isNaN(d.getTime())) return;
-
-    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-    if (!dayGroups.has(dateKey)) {
-      dayGroups.set(dateKey, {
-        dateKey,
-        sampleDate: d,
-        sessions: [],
-      });
-    }
-    dayGroups.get(dateKey).sessions.push(s);
+  // Sort sessions chronologically (oldest to newest)
+  const sorted = [...sessions].sort((a, b) => {
+    const timeA = new Date(a.date || a.completedAt || 0).getTime();
+    const timeB = new Date(b.date || b.completedAt || 0).getTime();
+    return timeA - timeB;
   });
 
-  // Sort groups chronologically
-  const sortedDayKeys = Array.from(dayGroups.keys()).sort((a, b) => {
-    return dayGroups.get(a).sampleDate.getTime() - dayGroups.get(b).sampleDate.getTime();
-  });
+  return sorted.map((s, idx) => {
+    const d = new Date(s.date || s.completedAt || Date.now());
+    const isValid = !isNaN(d.getTime());
 
-  return sortedDayKeys.map((key, idx) => {
-    const group = dayGroups.get(key);
-    if (!group) return null;
-    const daySessions = group.sessions || [];
-    const d = group.sampleDate;
-    const dateKey = key;
+    const dateStr = isValid
+      ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : 'Session';
+    const timeStr = isValid
+      ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      : '';
+    const fullDate = isValid
+      ? `${d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} at ${timeStr}`
+      : 'Practice Session';
 
-    // Filter out aborted zero-duration sessions if there are valid sessions for this day
-    const validSessions = daySessions.filter(
-      (s) => (s.durationSeconds && s.durationSeconds > 0) || (s.wpm && s.wpm > 0)
-    );
-    const activeList = validSessions.length > 0 ? validSessions : daySessions;
+    const netWpm = Math.round(Number(s.wpm ?? s.netWpm ?? 0));
+    const grossWpm = Math.round(Number(s.grossWpm ?? netWpm));
+    const accuracy = Math.round(Number(s.accuracy ?? s.accuracyPercent ?? 100));
+    const title = s.snippetTitle || s.templateTitle || s.title || 'Practice Sprint';
+    const lang = s.language || 'Code';
 
-    const count = activeList.length || 1;
-    const totalWpm = activeList.reduce((sum, s) => sum + (Number(s.wpm) || 0), 0);
-    const totalGross = activeList.reduce((sum, s) => sum + (Number(s.grossWpm ?? s.wpm) || 0), 0);
-    const totalAccuracy = activeList.reduce((sum, s) => sum + (Number(s.accuracy) || 0), 0);
-
-    const avgWpm = Math.max(0, Math.round(totalWpm / count) || 0);
-    const avgGrossWpm = Math.max(0, Math.round(totalGross / count) || 0);
-    const avgAccuracy = Math.max(0, Math.min(100, Math.round(totalAccuracy / count) || 0));
-
-    // Collect unique languages practiced that day
-    const uniqueLangs = Array.from(
-      new Set(daySessions.map((s) => s.language).filter(Boolean))
-    );
-    const langDisplay = uniqueLangs.length <= 2 ? uniqueLangs.join(', ') : `${uniqueLangs[0]} +${uniqueLangs.length - 1}`;
-
-    const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const fullDate = d.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-
-    const title = daySessions.length === 1
-      ? (daySessions[0].snippetTitle || daySessions[0].title || 'Practice Session')
-      : `${daySessions.length} Drills Completed`;
+    // Label for X-Axis: show date and time so multiple sessions on the same date are distinct
+    const label = timeStr ? `${dateStr} ${timeStr}` : `${dateStr} #${idx + 1}`;
 
     return {
       index: idx + 1,
-      dateKey,
+      id: s.id || `sess_${idx}`,
+      dateKey: isValid ? d.toISOString().split('T')[0] : `sess_${idx}`,
       label,
       fullDate,
-      wpm: avgWpm,
-      grossWpm: avgGrossWpm,
-      accuracy: avgAccuracy,
-      sessionCount: daySessions.length,
+      timeStr,
+      wpm: netWpm,
+      grossWpm,
+      accuracy,
+      sessionCount: 1,
       title,
-      language: langDisplay || 'Code',
+      language: lang,
     };
-  }).filter(Boolean);
+  });
 }
 
 /**
